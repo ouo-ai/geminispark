@@ -7,6 +7,7 @@ import { Features } from "@/components/features"
 import { UseCases } from "@/components/use-cases"
 import { Testimonials } from "@/components/testimonials"
 import { FAQ } from "@/components/faq"
+import { SeoLinkBand } from "@/components/seo-link-band"
 import { FinalCTA } from "@/components/final-cta"
 import { Footer } from "@/components/footer"
 
@@ -32,6 +33,7 @@ export default function Home() {
       <UseCases />
       <Testimonials />
       <FAQ />
+      <SeoLinkBand />
       <FinalCTA />
       <Footer />
     </main>

@@ -25,53 +25,52 @@ import {
   Search,
   Rocket,
   BookOpen,
-  Lock,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 const navLinks = [
-  { href: "#features", label: "Features" },
-  { href: "#use-cases", label: "Use Cases" },
-  { href: "#faq", label: "FAQ" },
+  { href: "/#features", label: "Features" },
+  { href: "/#use-cases", label: "Use Cases" },
+  { href: "/#faq", label: "FAQ" },
 ]
 
 const workflowItems = [
-  { href: "#generator", label: "Video Generator", icon: Sparkles },
-  { href: "#features", label: "Text to Video", icon: FileText },
-  { href: "#features", label: "Image to Video", icon: Search },
-  { href: "#use-cases", label: "Launch Videos", icon: Rocket },
+  { href: "/#generator", label: "Video Generator", icon: Sparkles },
+  { href: "/text-to-video-ai", label: "Text to Video", icon: FileText },
+  { href: "/image-to-video-ai", label: "Image to Video", icon: Search },
+  { href: "/ai-product-video-generator", label: "Launch Videos", icon: Rocket },
 ]
 
 const toolsMenu = {
-  free: [
+  video: [
     {
       category: "Ideation",
       items: [
-        { href: "#generator", label: "Video Generator", icon: Lightbulb },
-        { href: "#generator", label: "Prompt to Video", icon: FileText },
+        { href: "/ai-video-generator", label: "Video Generator", icon: Lightbulb },
+        { href: "/text-to-video-ai", label: "Prompt to Video", icon: FileText },
       ],
     },
     {
       category: "Controls",
       items: [
-        { href: "#generator", label: "Reference Image", icon: Search },
-        { href: "#generator", label: "Task Tracking", icon: BookOpen },
+        { href: "/image-to-video-ai", label: "Reference Image", icon: Search },
+        { href: "/ai-video-prompt-guide", label: "Prompt Guide", icon: BookOpen },
       ],
     },
   ],
-  paid: [
+  production: [
     {
       category: "Pro Studio",
       items: [
-        { href: "#generator", label: "Batch Queue", icon: Layers },
-        { href: "#generator", label: "Storyboard Builder", icon: Wand2 },
+        { href: "/ai-video-prompt-examples", label: "Prompt Examples", icon: Layers },
+        { href: "/ai-video-generator-for-social-media", label: "Social Clips", icon: Wand2 },
       ],
     },
     {
       category: "Production",
       items: [
-        { href: "#generator", label: "Saved Results", icon: PenTool },
-        { href: "#generator", label: "Campaign Sets", icon: Rocket },
+        { href: "/ai-product-video-generator", label: "Product Videos", icon: PenTool },
+        { href: "/ai-video-generator-for-marketing", label: "Campaign Clips", icon: Rocket },
       ],
     },
   ],
@@ -120,12 +119,12 @@ export function Navbar() {
                 className="w-[480px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border-border p-4"
               >
                 <div className="grid grid-cols-2 gap-6">
-                  {/* Free Tools Column */}
+                  {/* Video tools column */}
                   <div>
                     <DropdownMenuLabel className="flex items-center gap-2 text-primary font-semibold mb-2">
-                      Free Tools
+                      Video Tools
                     </DropdownMenuLabel>
-                    {toolsMenu.free.map((cat) => (
+                    {toolsMenu.video.map((cat) => (
                       <div key={cat.category} className="mb-3">
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-2">
                           {cat.category}
@@ -144,14 +143,12 @@ export function Navbar() {
                       </div>
                     ))}
                   </div>
-                  {/* Pro Tools Column */}
+                  {/* Production guides column */}
                   <div>
                     <DropdownMenuLabel className="flex items-center gap-2 text-primary font-semibold mb-2">
-                      <Lock className="w-3.5 h-3.5" aria-hidden="true" />
-                      Pro Tools
-                      <span className="text-[10px] text-muted-foreground font-normal">(Coming Soon)</span>
+                      Production Guides
                     </DropdownMenuLabel>
-                    {toolsMenu.paid.map((cat) => (
+                    {toolsMenu.production.map((cat) => (
                       <div key={cat.category} className="mb-3">
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-2">
                           {cat.category}
@@ -210,10 +207,10 @@ export function Navbar() {
           {/* Desktop Buttons - hidden below lg */}
           <div className="hidden lg:flex items-center gap-3">
             <Button variant="ghost" size="sm" rounded="full" asChild>
-              <Link href="#how-it-works">How it works</Link>
+              <Link href="/#how-it-works">How it works</Link>
             </Button>
             <Button size="sm" rounded="full" className="gap-1.5" asChild>
-              <Link href="#generator">
+              <Link href="/#generator">
                 Generate Now
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </Link>
@@ -275,8 +272,8 @@ export function Navbar() {
 
               <div className="flex-1 overflow-y-auto px-6 pt-4 pb-4">
                 {/* Tools Section */}
-                <div className="px-4 py-2 text-xs font-medium text-primary uppercase tracking-wider">Free Tools</div>
-                {toolsMenu.free.map((cat) => (
+                <div className="px-4 py-2 text-xs font-medium text-primary uppercase tracking-wider">Video Tools</div>
+                {toolsMenu.video.map((cat) => (
                   <div key={cat.category}>
                     <div className="px-4 py-1 text-xs text-muted-foreground">{cat.category}</div>
                     {cat.items.map((item) => (
@@ -296,11 +293,9 @@ export function Navbar() {
                   </div>
                 ))}
                 <div className="px-4 py-2 text-xs font-medium text-primary uppercase tracking-wider flex items-center gap-1">
-                  <Lock className="w-3 h-3" aria-hidden="true" />
-                  Pro Tools
-                  <span className="text-muted-foreground font-normal">(Coming Soon)</span>
+                  Production Guides
                 </div>
-                {toolsMenu.paid.map((cat) => (
+                {toolsMenu.production.map((cat) => (
                   <div key={cat.category}>
                     <div className="px-4 py-1 text-xs text-muted-foreground">{cat.category}</div>
                     {cat.items.map((item) => (
@@ -354,12 +349,12 @@ export function Navbar() {
 
               <div className="px-6 py-4 border-t border-border/50 bg-background flex flex-col gap-3">
                 <Button variant="ghost" rounded="lg" className="justify-center text-base py-6 w-full" asChild>
-                  <Link href="#how-it-works" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/#how-it-works" onClick={() => setMobileMenuOpen(false)}>
                     How it works
                   </Link>
                 </Button>
                 <Button rounded="full" className="py-6 text-base w-full" asChild>
-                  <Link href="#generator" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/#generator" onClick={() => setMobileMenuOpen(false)}>
                     Generate Now
                   </Link>
                 </Button>

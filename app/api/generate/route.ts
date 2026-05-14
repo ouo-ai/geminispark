@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { ZodError } from "zod"
 
 import { createVideoGenerationTask, videoGenerationSchema } from "@/lib/apimart"
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -10,6 +11,20 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const input = videoGenerationSchema.parse(body)
+    const rateLimit = checkRateLimit(getClientIp(request))
+
+    if (rateLimit.limited) {
+      return NextResponse.json(
+        { ok: false, message: "Too many video generation requests. Try again later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfter),
+          },
+        },
+      )
+    }
+
     const result = await createVideoGenerationTask(input)
 
     if (!result.ok) {

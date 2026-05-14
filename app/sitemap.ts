@@ -1,14 +1,23 @@
 import type { MetadataRoute } from "next"
 
+import { seoPages } from "@/lib/seo-pages"
+
 export default function sitemap(): MetadataRoute.Sitemap {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://geminispark.ai"
+  const lastModified = new Date()
 
   return [
     {
       url: siteUrl,
-      lastModified: new Date(),
+      lastModified,
       changeFrequency: "weekly",
       priority: 1,
     },
+    ...seoPages.map((page) => ({
+      url: `${siteUrl}/${page.slug}`,
+      lastModified,
+      changeFrequency: "weekly" as const,
+      priority: page.priority,
+    })),
   ]
 }

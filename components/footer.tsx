@@ -3,14 +3,19 @@ import Image from "next/image"
 
 const footerLinks = {
   Product: [
-    { label: "Features", href: "#features" },
-    { label: "Use Cases", href: "#use-cases" },
-    { label: "FAQ", href: "#faq" },
+    { label: "Generator", href: "/#generator" },
+    { label: "Features", href: "/#features" },
+    { label: "Use Cases", href: "/#use-cases" },
   ],
   Resources: [
-    { label: "How it Works", href: "#how-it-works" },
-    { label: "Request Access", href: "mailto:hello@geminispark.ai?subject=Gemini%20Spark%20early%20access" },
-    { label: "Independence Note", href: "#faq" },
+    { label: "AI Video Generator", href: "/ai-video-generator" },
+    { label: "Text to Video AI", href: "/text-to-video-ai" },
+    { label: "Image to Video AI", href: "/image-to-video-ai" },
+  ],
+  Guides: [
+    { label: "Prompt Guide", href: "/ai-video-prompt-guide" },
+    { label: "Prompt Examples", href: "/ai-video-prompt-examples" },
+    { label: "Marketing Videos", href: "/ai-video-generator-for-marketing" },
   ],
 }
 
