@@ -7,32 +7,32 @@ const faqs = [
   {
     question: "What is Gemini Spark and how does it work?",
     answer:
-      "Gemini Spark is an AI prompt studio and workflow builder that helps you turn rough ideas into polished, Gemini-ready prompts. You start with a concept, use our guided templates to add structure, and get a refined prompt, brief, or research plan ready to use with any AI tool. It's about building reusable systems, not just one-off prompts.",
+      "Gemini Spark is an AI video generator that turns a text prompt, and optionally one public reference image URL, into a short video generation task. The page submits the task through a secure server route and checks status until the result is ready.",
   },
   {
-    question: "Does Gemini Spark connect to the Gemini API?",
+    question: "What model name is shown in the product?",
     answer:
-      "Not currently. Gemini Spark focuses on prompt crafting and workflow building—the preparation that happens before you talk to any AI. You take your refined prompts and use them with Gemini, ChatGPT, Claude, or any other AI tool. API integration is on our roadmap for future releases.",
+      "The product interface displays the model as Gemini Spark. Supplier routing and API credentials stay on the server and are not exposed in the browser.",
   },
   {
     question: "Is Gemini Spark affiliated with Google?",
     answer:
-      "No. Gemini Spark is an independent product. We're not affiliated with Google or the Gemini AI model. We're a prompt studio that helps you create better inputs for any AI system, including Google's Gemini.",
+      "No. Gemini Spark is an independent product. It is not affiliated with Google or Google Gemini.",
   },
   {
     question: "Who is Gemini Spark built for?",
     answer:
-      "Creators, marketers, students, educators, consultants, and teams who regularly work with AI tools. If you find yourself writing the same kinds of prompts over and over, or struggling to get consistent quality from AI outputs, Gemini Spark gives you structure and reusability.",
+      "Creators, marketers, founders, educators, consultants, and teams who need short AI videos for product launches, explainers, social ads, lessons, and concept previews.",
   },
   {
     question: "What can I create with Gemini Spark?",
     answer:
-      "Refined prompts for any AI tool, content briefs for blog posts and landing pages, research plans with organized sections and synthesis prompts, campaign messaging hierarchies, launch copy drafts, and reusable workflow templates. The focus is on preparation and structure, not generation.",
+      "You can create text-to-video and image-to-video tasks for product reveals, campaign clips, social teasers, explainer scenes, and visual concept tests.",
   },
   {
-    question: "Is there a free tier?",
+    question: "Why do video links need to be saved?",
     answer:
-      "Yes. The prompt studio, basic templates, and research outlines are free to use. Pro features like workflow builder, prompt chains, version history, and team collaboration are coming soon as a paid tier. Join the waitlist to be first to know.",
+      "Generated video links from the upstream task system may expire, so download or save any result you want to keep after the task completes.",
   },
 ]
 

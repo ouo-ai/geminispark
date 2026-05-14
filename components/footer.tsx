@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Sparkles } from "lucide-react"
+import Image from "next/image"
 
 const footerLinks = {
   Product: [
@@ -21,13 +21,15 @@ export function Footer() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-8">
           <div className="col-span-2 sm:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-4">
-              <Sparkles className="w-5 h-5 text-primary" />
+              <span className="relative h-5 w-5 overflow-hidden rounded border border-primary/25">
+                <Image src="/icon-192.png" alt="" fill sizes="20px" className="object-cover" />
+              </span>
               <span className="font-bold text-foreground" style={{ letterSpacing: 0 }}>
                 Gemini Spark
               </span>
             </Link>
             <p className="text-xs sm:text-sm text-muted-foreground mb-3">
-              Turn rough ideas into launch-ready drafts.
+              Turn prompts into short AI videos.
             </p>
             <p className="text-[10px] text-muted-foreground/60">
               Not affiliated with Google or Google Gemini.
@@ -60,7 +62,7 @@ export function Footer() {
             &copy; {new Date().getFullYear()} Gemini Spark. All rights reserved.
           </p>
           <p className="text-[10px] sm:text-xs text-muted-foreground/70">
-            Independent prompt workflow site for geminispark.ai.
+            Independent AI video generation site for geminispark.ai.
           </p>
         </div>
       </div>

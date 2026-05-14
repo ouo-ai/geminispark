@@ -6,42 +6,42 @@ import { Palette, Megaphone, GraduationCap, Code, Briefcase, Users, PenTool, Roc
 const useCases = [
   {
     category: "Creators",
-    question: "How can I structure my content ideas into publishable drafts?",
+    question: "How can I turn a rough concept into a short cinematic clip?",
     icon: Palette,
   },
   {
     category: "Marketers",
-    question: "Need to draft campaign briefs and messaging hierarchies fast?",
+    question: "Need fast product reveal videos for launch and paid social?",
     icon: Megaphone,
   },
   {
     category: "Educators",
-    question: "Want to create lesson plans and research guides for students?",
+    question: "Want quick explainer clips for lessons and course modules?",
     icon: GraduationCap,
   },
   {
     category: "Builders",
-    question: "How do I turn product specs into clear documentation prompts?",
+    question: "How do I show a product workflow as a simple motion demo?",
     icon: Code,
   },
   {
     category: "Consultants",
-    question: "Looking to systematize client deliverables and proposals?",
+    question: "Looking to mock up client video concepts before production?",
     icon: Briefcase,
   },
   {
     category: "Teams",
-    question: "Need shared prompt libraries that everyone can contribute to?",
+    question: "Need one shared place to test video generation prompts?",
     icon: Users,
   },
   {
     category: "Writers",
-    question: "How can I outline complex articles and research pieces?",
+    question: "How can I visualize scenes from a script or campaign idea?",
     icon: PenTool,
   },
   {
     category: "Founders",
-    question: "Want to outline pitch decks, landing copy, and launch plans?",
+    question: "Want an investor-ready teaser for a product story?",
     icon: Rocket,
   },
 ]
@@ -80,7 +80,7 @@ export function UseCases() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto"
         >
-          From solo creators to enterprise teams, anyone who works with ideas
+          From solo creators to product teams, anyone turning ideas into motion
         </motion.p>
       </div>
 

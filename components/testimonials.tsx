@@ -5,19 +5,19 @@ import { CheckCircle2 } from "lucide-react"
 
 const examples = [
   {
-    title: "Campaign brief",
-    input: "Launch a new AI note-taking feature for remote product teams.",
-    output: "Positioning, audience, objections, channel angles, and a Gemini-ready prompt.",
+    title: "Product reveal",
+    input: "A tiny AI spark turns a notebook sketch into a polished SaaS dashboard.",
+    output: "A landscape video task ready for a launch page or demo teaser.",
   },
   {
-    title: "Research plan",
-    input: "Compare customer onboarding patterns across three SaaS competitors.",
-    output: "Question map, evidence table, synthesis prompts, and final report structure.",
+    title: "Social ad",
+    input: "A vertical cinematic clip showing fast before-and-after creative production.",
+    output: "A portrait generation task suitable for reels, shorts, and paid social tests.",
   },
   {
-    title: "Reusable prompt system",
-    input: "Turn messy product ideas into landing page copy every week.",
-    output: "A repeatable prompt chain for value props, sections, FAQ, and CTA variants.",
+    title: "Explainer scene",
+    input: "A clean animated flow showing a prompt moving through model, task, and result.",
+    output: "A short video concept for help docs, onboarding, or product education.",
   },
 ]
 
@@ -34,10 +34,10 @@ export function Testimonials() {
           className="text-center mb-10 sm:mb-16"
         >
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-display mb-4">
-            Example <span className="text-gradient-spark">workflow outputs</span>
+            Example <span className="text-gradient-spark">video tasks</span>
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground">
-            Concrete ways Gemini Spark turns a rough input into useful prompt-ready structure
+            Concrete ways Gemini Spark turns a rough prompt into a generation job
           </p>
         </motion.div>
 

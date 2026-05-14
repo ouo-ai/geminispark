@@ -14,18 +14,19 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://geminispark.ai"
 
 export const metadata: Metadata = {
   applicationName: "Gemini Spark",
-  title: "Gemini Spark - Prompt Studio for Better AI Briefs",
+  title: "Gemini Spark - AI Video Generator",
   description:
-    "Gemini Spark is an independent prompt studio for turning rough ideas into Gemini-ready prompts, content briefs, research plans, and launch copy.",
+    "Gemini Spark is an independent AI video generator for turning prompts and public reference images into short cinematic videos.",
   keywords: [
     "Gemini Spark",
-    "AI prompt studio",
-    "prompt engineering",
-    "workflow builder",
-    "content briefs",
-    "research plans",
-    "AI prompts",
-    "prompt templates",
+    "AI video generator",
+    "Gemini Spark video",
+    "text to video",
+    "image to video",
+    "AI video creation",
+    "cinematic AI video",
+    "video generation",
+    "prompt to video",
   ],
   authors: [{ name: "Gemini Spark" }],
   creator: "Gemini Spark",
@@ -39,23 +40,23 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: siteUrl,
     siteName: "Gemini Spark",
-    title: "Gemini Spark - Prompt Studio for Better AI Briefs",
+    title: "Gemini Spark - AI Video Generator",
     description:
-      "Turn rough ideas into Gemini-ready prompts, content briefs, research plans, and launch copy with the independent Gemini Spark prompt studio.",
+      "Generate short AI videos from prompts or public reference images with Gemini Spark.",
     images: [
       {
         url: `${siteUrl}/opengraph-image`,
         width: 1200,
         height: 630,
-        alt: "Gemini Spark - AI Prompt Studio",
+        alt: "Gemini Spark - AI Video Generator",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Gemini Spark - Prompt Studio for Better AI Briefs",
+    title: "Gemini Spark - AI Video Generator",
     description:
-      "Turn rough ideas into Gemini-ready prompts, content briefs, research plans, and launch copy.",
+      "Generate short AI videos from prompts or public reference images with Gemini Spark.",
     images: [`${siteUrl}/opengraph-image`],
     creator: "@geminispark",
   },
@@ -75,15 +76,25 @@ export const metadata: Metadata = {
     icon: [
       {
         url: "/icon-light-32x32.png",
+        sizes: "32x32",
+        type: "image/png",
         media: "(prefers-color-scheme: light)",
       },
       {
         url: "/icon-dark-32x32.png",
+        sizes: "32x32",
+        type: "image/png",
         media: "(prefers-color-scheme: dark)",
       },
       {
-        url: "/icon.svg",
-        type: "image/svg+xml",
+        url: "/icon-192.png",
+        sizes: "192x192",
+        type: "image/png",
+      },
+      {
+        url: "/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
       },
     ],
     apple: "/apple-icon.png",
@@ -112,7 +123,7 @@ export default function RootLayout({
         name: "Gemini Spark",
         url: siteUrl,
         description:
-          "Gemini Spark is an independent prompt studio brand. It is not affiliated with Google or Google Gemini.",
+          "Gemini Spark is an independent AI video generation brand. It is not affiliated with Google or Google Gemini.",
       },
       {
         "@type": "WebSite",
@@ -126,10 +137,10 @@ export default function RootLayout({
         "@type": "SoftwareApplication",
         "@id": `${siteUrl}/#software`,
         name: "Gemini Spark",
-        applicationCategory: "ProductivityApplication",
+        applicationCategory: "MultimediaApplication",
         operatingSystem: "Web",
         description:
-          "Gemini Spark is an independent AI prompt studio and workflow builder for creating Gemini-ready prompts, content briefs, research plans, and launch copy.",
+          "Gemini Spark is an independent AI video generator for creating short videos from prompts and public reference images.",
         url: siteUrl,
         isAccessibleForFree: true,
         publisher: { "@id": `${siteUrl}/#organization` },
@@ -137,15 +148,15 @@ export default function RootLayout({
           "@type": "Offer",
           price: "0",
           priceCurrency: "USD",
-          availability: "https://schema.org/PreOrder",
-          description: "Planned free access at launch; no live paid checkout is available on this page.",
+          availability: "https://schema.org/InStock",
+          description: "Video generation is available through the Gemini Spark web interface.",
         },
         featureList: [
-          "Prompt studio",
-          "Workflow builder",
-          "Content brief templates",
-          "Research plan templates",
-          "Reusable prompt systems",
+          "Text-to-video generation",
+          "Image-to-video generation from public image URLs",
+          "Generation task tracking",
+          "Landscape and portrait output options",
+          "Short-form cinematic video creation",
         ],
       },
       {
@@ -157,15 +168,15 @@ export default function RootLayout({
             name: "What is Gemini Spark and how does it work?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Gemini Spark is an independent prompt studio and workflow builder that helps users turn rough ideas into structured prompts, briefs, and research plans for use with AI tools.",
+              text: "Gemini Spark is an independent AI video generator that submits prompt-based video tasks and tracks generation status until the video result is ready.",
             },
           },
           {
             "@type": "Question",
-            name: "Does Gemini Spark connect to the Gemini API?",
+            name: "Can Gemini Spark generate video from an image?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Not currently. Gemini Spark focuses on prompt preparation and reusable workflows before users bring the finished prompt into Gemini or another AI tool.",
+              text: "Yes. Gemini Spark supports text-to-video by default and can use one public image URL as a reference for image-to-video generation.",
             },
           },
           {

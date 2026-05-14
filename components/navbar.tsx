@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -35,10 +36,10 @@ const navLinks = [
 ]
 
 const workflowItems = [
-  { href: "#how-it-works", label: "Prompt Studio", icon: Sparkles },
-  { href: "#features", label: "Content Briefs", icon: FileText },
-  { href: "#features", label: "Research Plans", icon: Search },
-  { href: "#use-cases", label: "Launch Copy", icon: Rocket },
+  { href: "#generator", label: "Video Generator", icon: Sparkles },
+  { href: "#features", label: "Text to Video", icon: FileText },
+  { href: "#features", label: "Image to Video", icon: Search },
+  { href: "#use-cases", label: "Launch Videos", icon: Rocket },
 ]
 
 const toolsMenu = {
@@ -46,15 +47,15 @@ const toolsMenu = {
     {
       category: "Ideation",
       items: [
-        { href: "#features", label: "Idea Refiner", icon: Lightbulb },
-        { href: "#features", label: "Prompt Templates", icon: FileText },
+        { href: "#generator", label: "Video Generator", icon: Lightbulb },
+        { href: "#generator", label: "Prompt to Video", icon: FileText },
       ],
     },
     {
-      category: "Research",
+      category: "Controls",
       items: [
-        { href: "#features", label: "Research Outline", icon: Search },
-        { href: "#use-cases", label: "Topic Explorer", icon: BookOpen },
+        { href: "#generator", label: "Reference Image", icon: Search },
+        { href: "#generator", label: "Task Tracking", icon: BookOpen },
       ],
     },
   ],
@@ -62,15 +63,15 @@ const toolsMenu = {
     {
       category: "Pro Studio",
       items: [
-        { href: "#waitlist", label: "Workflow Builder", icon: Layers },
-        { href: "#waitlist", label: "Prompt Chains", icon: Wand2 },
+        { href: "#generator", label: "Batch Queue", icon: Layers },
+        { href: "#generator", label: "Storyboard Builder", icon: Wand2 },
       ],
     },
     {
-      category: "Content",
+      category: "Production",
       items: [
-        { href: "#waitlist", label: "Brief Generator", icon: PenTool },
-        { href: "#waitlist", label: "Campaign Planner", icon: Rocket },
+        { href: "#generator", label: "Saved Results", icon: PenTool },
+        { href: "#generator", label: "Campaign Sets", icon: Rocket },
       ],
     },
   ],
@@ -95,11 +96,8 @@ export function Navbar() {
       <nav className="mx-auto max-w-6xl px-2 sm:px-4 lg:px-8 py-4" aria-label="Main navigation">
         <div className="flex h-14 items-center justify-between bg-background/60 backdrop-blur-xl border border-border/50 rounded-full px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2" aria-label="Gemini Spark home">
-            <div className="relative">
-              <Sparkles className="w-5 sm:w-6 h-5 sm:h-6 text-primary" aria-hidden="true" />
-              <div className="absolute inset-0 text-primary blur-sm opacity-50">
-                <Sparkles className="w-5 sm:w-6 h-5 sm:h-6" />
-              </div>
+            <div className="relative h-6 w-6 overflow-hidden rounded-md border border-primary/25 shadow-[0_0_18px_rgba(245,180,50,0.2)]">
+              <Image src="/icon-192.png" alt="" fill sizes="24px" className="object-cover" priority />
             </div>
             <span
               className="font-[family-name:var(--font-jetbrains-mono)] font-bold text-base sm:text-lg text-foreground"
@@ -215,10 +213,10 @@ export function Navbar() {
               <Link href="#how-it-works">How it works</Link>
             </Button>
             <Button size="sm" rounded="full" className="gap-1.5" asChild>
-              <a href="mailto:hello@geminispark.ai?subject=Gemini%20Spark%20early%20access">
-                Request Early Access
+              <Link href="#generator">
+                Generate Now
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-              </a>
+              </Link>
             </Button>
           </div>
 
@@ -255,7 +253,9 @@ export function Navbar() {
             >
               <div className="flex items-center justify-between px-6 py-4 bg-background border-b border-border/50">
                 <Link href="/" className="flex items-center gap-2" onClick={() => setMobileMenuOpen(false)}>
-                  <Sparkles className="w-5 h-5 text-primary" aria-hidden="true" />
+                  <span className="relative h-6 w-6 overflow-hidden rounded-md border border-primary/25">
+                    <Image src="/icon-192.png" alt="" fill sizes="24px" className="object-cover" />
+                  </span>
                   <span
                     className="font-[family-name:var(--font-jetbrains-mono)] font-bold text-base text-foreground"
                     style={{ letterSpacing: 0 }}
@@ -359,12 +359,9 @@ export function Navbar() {
                   </Link>
                 </Button>
                 <Button rounded="full" className="py-6 text-base w-full" asChild>
-                  <a
-                    href="mailto:hello@geminispark.ai?subject=Gemini%20Spark%20early%20access"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Request Early Access
-                  </a>
+                  <Link href="#generator" onClick={() => setMobileMenuOpen(false)}>
+                    Generate Now
+                  </Link>
                 </Button>
               </div>
             </motion.div>

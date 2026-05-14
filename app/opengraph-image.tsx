@@ -50,10 +50,10 @@ export default function Image() {
         </div>
         <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 24 }}>
           <div style={{ fontSize: 76, lineHeight: 1.02, maxWidth: 900, fontWeight: 700 }}>
-            Prompt studio for better AI briefs
+            AI video generator for launch-ready clips
           </div>
           <div style={{ fontSize: 30, lineHeight: 1.35, maxWidth: 900, color: "#cbd5e1" }}>
-            Turn rough ideas into Gemini-ready prompts, content briefs, research plans, and launch copy.
+            Turn prompts and public reference images into short Gemini Spark video tasks.
           </div>
         </div>
         <div style={{ position: "relative", fontSize: 24, color: "#f8c35f" }}>geminispark.ai</div>

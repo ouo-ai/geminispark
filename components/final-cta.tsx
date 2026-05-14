@@ -8,7 +8,7 @@ export function FinalCTA() {
   const shouldReduceMotion = useReducedMotion()
 
   return (
-    <section id="waitlist" className="py-16 lg:py-24 px-4 sm:px-6 lg:px-8">
+    <section id="create" className="py-16 lg:py-24 px-4 sm:px-6 lg:px-8">
       <div
         className="relative max-w-5xl mx-auto bg-background rounded-3xl overflow-hidden py-16 lg:py-24 px-6 sm:px-12"
         style={{
@@ -29,26 +29,26 @@ export function FinalCTA() {
             </div>
             
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-display mb-6 text-foreground">
-              Ready to spark your next idea?
+              Ready to generate your next clip?
             </h2>
             <p className="text-lg text-muted-foreground mb-10 max-w-xl mx-auto">
-              Join the waitlist for early access to Gemini Spark. Free tier available at launch.
+              Open Gemini Spark, write a scene, and start a real AI video generation task.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button size="xl" rounded="full" className="gap-2 min-w-[200px]" asChild>
-                <a href="mailto:hello@geminispark.ai?subject=Gemini%20Spark%20early%20access">
-                  Request Early Access
+                <a href="#generator">
+                  Generate Video
                   <ArrowRight className="w-4 h-4" />
                 </a>
               </Button>
               <Button variant="outline" size="xl" rounded="full" className="gap-2 min-w-[200px] bg-transparent" asChild>
                 <a href="#how-it-works">
-                  Explore Workflows
+                  How it Works
                 </a>
               </Button>
             </div>
             <p className="mt-6 text-xs text-muted-foreground">
-              No credit card required. Free tier available at launch.
+              The API key stays server-side. The browser only talks to Gemini Spark.
             </p>
           </motion.div>
         </div>

@@ -6,11 +6,11 @@ import { motion, useReducedMotion } from "framer-motion"
 import { useState, useEffect } from "react"
 
 const examplePrompts = [
-  "Help me outline a product launch...",
-  "Write a content brief for SEO...",
-  "Create a research plan for...",
-  "Draft campaign messaging for...",
-  "Build a prompt chain for...",
+  "A cinematic AI product reveal...",
+  "A founder demo in a bright studio...",
+  "A vertical ad for a launch offer...",
+  "A smooth explainer with UI overlays...",
+  "A social teaser with kinetic sparks...",
 ]
 
 const trustedBy = [
@@ -86,7 +86,7 @@ export function Hero() {
             className="inline-flex items-center gap-2 px-4 py-1.5 mb-6 rounded-full border border-primary/30 bg-primary/5 text-sm text-primary"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Prompt Studio & Workflow Builder</span>
+            <span>AI Video Generator</span>
           </motion.div>
 
           <motion.h1
@@ -97,7 +97,7 @@ export function Hero() {
           >
             <span className="text-gradient-spark">Gemini Spark</span>
             <br />
-            <span className="text-foreground">turns ideas into launch-ready drafts</span>
+            <span className="text-foreground">turns prompts into AI videos</span>
           </motion.h1>
 
           <motion.p
@@ -106,8 +106,8 @@ export function Hero() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-sm sm:text-base lg:text-lg text-muted-foreground max-w-2xl mx-auto mb-8 text-pretty leading-relaxed px-2"
           >
-            Gemini Spark helps you craft polished prompts, content briefs, research plans, and campaign copy. 
-            Build reusable prompt systems and workflows that scale with your creative process.
+            Gemini Spark creates short AI videos from text prompts or a public reference image.
+            Describe the scene, pick the format, and track the generation task from one focused workspace.
           </motion.p>
 
           <motion.div
@@ -136,15 +136,15 @@ export function Hero() {
                 )}
                 {!prompt && isFocused && (
                   <div className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 pointer-events-none text-sm sm:text-base text-muted-foreground/50">
-                    Describe your idea...
+                    Describe your video...
                   </div>
                 )}
               </div>
               <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <Button size="sm" rounded="lg" asChild>
-                  <a href="#how-it-works">
+                  <a href="#generator">
                     <Sparkles className="w-4 h-4 mr-1.5" />
-                    Spark it
+                    Create
                   </a>
                 </Button>
               </div>
@@ -170,9 +170,9 @@ export function Hero() {
             className="mb-6"
           >
             <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground mb-2">
-              <span className="text-gradient-spark">Waitlist</span> open
+              <span className="text-gradient-spark">Generation</span> is live
             </p>
-            <p className="text-muted-foreground text-xs sm:text-sm">Free tier planned for launch</p>
+            <p className="text-muted-foreground text-xs sm:text-sm">Text-to-video and image-to-video in one model view</p>
           </motion.div>
 
           <motion.div
@@ -182,14 +182,14 @@ export function Hero() {
             className="flex flex-col sm:flex-row items-center justify-center gap-3"
           >
             <Button size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
-              <a href="mailto:hello@geminispark.ai?subject=Gemini%20Spark%20early%20access">
-                Request Early Access
+              <a href="#generator">
+                Generate a Video
                 <ArrowRight className="w-4 h-4" />
               </a>
             </Button>
             <Button variant="outline" size="xl" rounded="full" className="gap-2 bg-transparent w-full sm:w-auto" asChild>
               <a href="#how-it-works">
-                Explore Workflows
+                How it Works
                 <ArrowRight className="w-4 h-4" />
               </a>
             </Button>

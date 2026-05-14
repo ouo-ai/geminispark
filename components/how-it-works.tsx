@@ -1,28 +1,28 @@
 "use client"
 
 import { motion, useReducedMotion } from "framer-motion"
-import { Lightbulb, Sparkles, FileText, Rocket } from "lucide-react"
+import { Film, Image, PlayCircle, Rocket } from "lucide-react"
 
 const steps = [
   {
-    icon: Lightbulb,
-    title: "Capture your idea",
-    description: "Start with a rough concept, a half-formed thought, or a goal you want to accomplish. No polish needed yet.",
+    icon: Film,
+    title: "Describe the scene",
+    description: "Write the subject, setting, motion, lighting, and camera feel you want Gemini Spark to generate.",
   },
   {
-    icon: Sparkles,
-    title: "Refine with structure",
-    description: "Gemini Spark guides you through prompts, templates, and frameworks to shape your idea into something actionable.",
+    icon: Image,
+    title: "Add a reference",
+    description: "Optionally paste a public image URL when you want the video to follow a visual direction.",
   },
   {
-    icon: FileText,
-    title: "Generate your brief",
-    description: "Get a polished prompt, content brief, research outline, or campaign draft ready to use with Gemini or any AI tool.",
+    icon: PlayCircle,
+    title: "Submit the task",
+    description: "Choose landscape or portrait, pick a duration, and start the generation securely from the server.",
   },
   {
     icon: Rocket,
-    title: "Save and reuse",
-    description: "Build a library of reusable prompt systems and workflows. Iterate faster on your next project.",
+    title: "Preview the result",
+    description: "Track the task until it completes, then review the generated video directly on the page.",
   },
 ]
 
@@ -42,7 +42,7 @@ export function HowItWorks() {
             How <span className="text-gradient-spark">Gemini Spark</span> works
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            From raw idea to launch-ready output in four simple steps
+            From raw prompt to generated video in four simple steps
           </p>
         </motion.div>
 

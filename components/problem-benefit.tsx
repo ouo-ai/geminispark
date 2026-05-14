@@ -4,17 +4,17 @@ import { motion, useReducedMotion } from "framer-motion"
 import { X, Check, ArrowRight } from "lucide-react"
 
 const problems = [
-  "Staring at a blank prompt box with no idea where to start",
-  "Rewriting the same brief from scratch every campaign",
-  "Research scattered across tabs and lost context",
-  "Prompts that return generic, unusable results",
+  "Video ideas stuck as loose notes instead of usable prompts",
+  "Switching between tools just to test aspect ratio and duration",
+  "No clear task status after a generation starts",
+  "Reference images that are hard to translate into motion",
 ]
 
 const benefits = [
-  "Structured templates that guide your thinking",
-  "Reusable prompt systems you can iterate on",
-  "Research plans that keep context organized",
-  "Refined prompts that get better outputs",
+  "A focused prompt workspace for short-form AI video",
+  "Text-to-video and image-to-video from the same panel",
+  "Live task tracking with progress and final video preview",
+  "Landscape and portrait formats for launch, ads, and socials",
 ]
 
 export function ProblemBenefit() {
@@ -33,7 +33,7 @@ export function ProblemBenefit() {
             Stop guessing. <span className="text-gradient-spark">Start building.</span>
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Great AI outputs start with great prompts. Gemini Spark gives you the structure to get there.
+            Gemini Spark gives video creators one place to prompt, submit, and track AI video generations.
           </p>
         </motion.div>
 
@@ -50,7 +50,7 @@ export function ProblemBenefit() {
               <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center">
                 <X className="w-5 h-5 text-destructive" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground">The struggle is real</h3>
+              <h3 className="text-lg font-semibold text-foreground">The old way is slow</h3>
             </div>
             <ul className="space-y-4">
               {problems.map((problem, index) => (

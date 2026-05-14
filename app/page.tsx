@@ -1,5 +1,6 @@
 import { Navbar } from "@/components/navbar"
 import { Hero } from "@/components/hero"
+import { VideoGenerator } from "@/components/video-generator"
 import { ProblemBenefit } from "@/components/problem-benefit"
 import { HowItWorks } from "@/components/how-it-works"
 import { Features } from "@/components/features"
@@ -24,6 +25,7 @@ export default function Home() {
       <Navbar />
 
       <Hero />
+      <VideoGenerator />
       <ProblemBenefit />
       <HowItWorks />
       <Features />
