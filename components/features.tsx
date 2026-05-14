@@ -3,11 +3,11 @@
 import { motion, useReducedMotion } from "framer-motion"
 import {
   Sparkles,
-  Film,
+  Bot,
   Layers,
   Search,
   Wand2,
-  Image,
+  ClipboardList,
   RefreshCw,
   Zap,
 } from "lucide-react"
@@ -15,43 +15,43 @@ import {
 const features = [
   {
     icon: Sparkles,
-    title: "Text-to-video",
-    description: "Turn a compact scene description into a generated short video with one focused form.",
+    title: "Agent brief builder",
+    description: "Turn a rough objective into a structured role, workflow, output, and review checklist.",
   },
   {
-    icon: Image,
-    title: "Image-to-video",
-    description: "Use one public reference image URL to guide subject, framing, and visual direction.",
+    icon: ClipboardList,
+    title: "Mode-based planning",
+    description: "Choose research, marketing, product, or operations to shape the right working pattern.",
   },
   {
-    icon: Film,
-    title: "Format controls",
-    description: "Choose landscape or portrait output and select short-form durations from the UI.",
+    icon: Bot,
+    title: "Agent roles",
+    description: "Define the perspective the task should use before it produces work.",
   },
   {
     icon: Search,
-    title: "Task tracking",
-    description: "Keep the task ID, status, progress, and result preview visible after submission.",
+    title: "Acceptance checks",
+    description: "Make quality criteria visible so agent output is easier to review.",
   },
   {
     icon: Wand2,
-    title: "Server-side API",
-    description: "The generation key stays on the server while the browser talks only to Gemini Spark routes.",
+    title: "Prompt structure",
+    description: "Capture goal, context, constraints, steps, output, and checks in one task brief.",
   },
   {
     icon: Layers,
     title: "Reusable starts",
-    description: "A starter prompt and stable controls make repeat generation tests faster.",
+    description: "Reuse stable brief patterns for recurring workflows and team handoffs.",
   },
   {
     icon: RefreshCw,
-    title: "Auto polling",
-    description: "The page checks the task status every few seconds until the result is ready.",
+    title: "Workflow review",
+    description: "Review the plan before using it in an agent runtime or AI tool.",
   },
   {
     icon: Zap,
-    title: "Launch assets",
-    description: "Create product reveals, ad concepts, explainers, and social teasers from the same workflow.",
+    title: "Team workflows",
+    description: "Support research, launch planning, product operations, and content planning from the same workspace.",
   },
 ]
 
@@ -68,10 +68,10 @@ export function Features() {
           className="text-center mb-16"
         >
           <h2 className="text-3xl sm:text-4xl font-bold tracking-display mb-4">
-            Everything you need to <span className="text-gradient-spark">generate video</span>
+            Everything you need to <span className="text-gradient-spark">build agent workflows</span>
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            A practical AI video workspace for creators, marketers, founders, and teams
+            A practical AI agent workspace for creators, marketers, founders, and teams
           </p>
         </motion.div>
 

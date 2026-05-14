@@ -12,13 +12,13 @@ export function SeoLinkBand() {
         <div className="mb-8 max-w-2xl">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
             <BookOpen className="h-3.5 w-3.5" />
-            AI video guides
+            AI agent guides
           </div>
           <h2 className="text-3xl font-bold tracking-display text-foreground sm:text-4xl">
-            Learn the core <span className="text-gradient-spark">AI video workflows</span>
+            Learn the core <span className="text-gradient-spark">AI agent workflows</span>
           </h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-            Use these guides to plan text-to-video prompts, reference-image motion, and short-form AI video tasks.
+            Use these guides to plan agent briefs, prompt structure, workflow checks, and team handoffs.
           </p>
         </div>
 

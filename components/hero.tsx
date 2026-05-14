@@ -6,11 +6,11 @@ import { motion, useReducedMotion } from "framer-motion"
 import { useState, useEffect } from "react"
 
 const examplePrompts = [
-  "A cinematic AI product reveal...",
-  "A founder demo in a bright studio...",
-  "A vertical ad for a launch offer...",
-  "A smooth explainer with UI overlays...",
-  "A social teaser with kinetic sparks...",
+  "Plan a research agent for...",
+  "Build a launch workflow for...",
+  "Turn customer notes into...",
+  "Create an agent brief for...",
+  "Draft a product ops checklist...",
 ]
 
 const trustedBy = [
@@ -86,7 +86,7 @@ export function Hero() {
             className="inline-flex items-center gap-2 px-4 py-1.5 mb-6 rounded-full border border-primary/30 bg-primary/5 text-sm text-primary"
           >
             <Sparkles className="w-4 h-4" />
-            <span>AI Video Generator</span>
+            <span>AI Agent Workspace</span>
           </motion.div>
 
           <motion.h1
@@ -97,7 +97,7 @@ export function Hero() {
           >
             <span className="text-gradient-spark">Gemini Spark</span>
             <br />
-            <span className="text-foreground">turns prompts into AI videos</span>
+            <span className="text-foreground">turns goals into AI agent briefs</span>
           </motion.h1>
 
           <motion.p
@@ -106,8 +106,8 @@ export function Hero() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-sm sm:text-base lg:text-lg text-muted-foreground max-w-2xl mx-auto mb-8 text-pretty leading-relaxed px-2"
           >
-            Gemini Spark creates short AI videos from text prompts or a public reference image.
-            Describe the scene, pick the format, and track the generation task from one focused workspace.
+            Gemini Spark helps you shape rough objectives into agent-ready workflows.
+            Define the role, steps, constraints, output, and acceptance checks from one focused workspace.
           </motion.p>
 
           <motion.div
@@ -136,15 +136,15 @@ export function Hero() {
                 )}
                 {!prompt && isFocused && (
                   <div className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 pointer-events-none text-sm sm:text-base text-muted-foreground/50">
-                    Describe your video...
+                    Describe your agent task...
                   </div>
                 )}
               </div>
               <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <Button size="sm" rounded="lg" asChild>
-                  <a href="#generator">
+                  <a href="#agent-workspace">
                     <Sparkles className="w-4 h-4 mr-1.5" />
-                    Create
+                    Build
                   </a>
                 </Button>
               </div>
@@ -170,9 +170,9 @@ export function Hero() {
             className="mb-6"
           >
             <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground mb-2">
-              <span className="text-gradient-spark">Generation</span> is live
+              <span className="text-gradient-spark">Agent planning</span> is live
             </p>
-            <p className="text-muted-foreground text-xs sm:text-sm">Text-to-video and image-to-video in one model view</p>
+            <p className="text-muted-foreground text-xs sm:text-sm">Research, marketing, product, and operations modes</p>
           </motion.div>
 
           <motion.div
@@ -182,8 +182,8 @@ export function Hero() {
             className="flex flex-col sm:flex-row items-center justify-center gap-3"
           >
             <Button size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
-              <a href="#generator">
-                Generate a Video
+              <a href="#agent-workspace">
+                Build an Agent Brief
                 <ArrowRight className="w-4 h-4" />
               </a>
             </Button>

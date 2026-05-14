@@ -25,6 +25,8 @@ import {
   Search,
   Rocket,
   BookOpen,
+  Bot,
+  ClipboardList,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -35,42 +37,42 @@ const navLinks = [
 ]
 
 const workflowItems = [
-  { href: "/#generator", label: "Video Generator", icon: Sparkles },
-  { href: "/text-to-video-ai", label: "Text to Video", icon: FileText },
-  { href: "/image-to-video-ai", label: "Image to Video", icon: Search },
-  { href: "/ai-product-video-generator", label: "Launch Videos", icon: Rocket },
+  { href: "/#agent-workspace", label: "Agent Workspace", icon: Sparkles },
+  { href: "/ai-agent-builder", label: "Agent Builder", icon: Bot },
+  { href: "/ai-agent-workflow", label: "Agent Workflow", icon: ClipboardList },
+  { href: "/ai-agent-for-product-teams", label: "Product Agents", icon: Rocket },
 ]
 
 const toolsMenu = {
-  video: [
+  agent: [
     {
       category: "Ideation",
       items: [
-        { href: "/ai-video-generator", label: "Video Generator", icon: Lightbulb },
-        { href: "/text-to-video-ai", label: "Prompt to Video", icon: FileText },
+        { href: "/ai-agent", label: "AI Agent", icon: Lightbulb },
+        { href: "/ai-agent-builder", label: "Agent Builder", icon: FileText },
       ],
     },
     {
       category: "Controls",
       items: [
-        { href: "/image-to-video-ai", label: "Reference Image", icon: Search },
-        { href: "/ai-video-prompt-guide", label: "Prompt Guide", icon: BookOpen },
+        { href: "/ai-agent-workflow", label: "Workflow Planner", icon: Search },
+        { href: "/ai-agent-prompt-guide", label: "Prompt Guide", icon: BookOpen },
       ],
     },
   ],
-  production: [
+  teams: [
     {
-      category: "Pro Studio",
+      category: "Guides",
       items: [
-        { href: "/ai-video-prompt-examples", label: "Prompt Examples", icon: Layers },
-        { href: "/ai-video-generator-for-social-media", label: "Social Clips", icon: Wand2 },
+        { href: "/ai-agent-prompt-examples", label: "Prompt Examples", icon: Layers },
+        { href: "/ai-agent-for-research", label: "Research Agents", icon: Wand2 },
       ],
     },
     {
-      category: "Production",
+      category: "Teams",
       items: [
-        { href: "/ai-product-video-generator", label: "Product Videos", icon: PenTool },
-        { href: "/ai-video-generator-for-marketing", label: "Campaign Clips", icon: Rocket },
+        { href: "/ai-agent-for-product-teams", label: "Product Agents", icon: PenTool },
+        { href: "/ai-agent-for-marketing", label: "Marketing Agents", icon: Rocket },
       ],
     },
   ],
@@ -119,12 +121,11 @@ export function Navbar() {
                 className="w-[480px] max-w-[calc(100vw-2rem)] bg-card/95 backdrop-blur-xl border-border p-4"
               >
                 <div className="grid grid-cols-2 gap-6">
-                  {/* Video tools column */}
                   <div>
                     <DropdownMenuLabel className="flex items-center gap-2 text-primary font-semibold mb-2">
-                      Video Tools
+                      Agent Tools
                     </DropdownMenuLabel>
-                    {toolsMenu.video.map((cat) => (
+                    {toolsMenu.agent.map((cat) => (
                       <div key={cat.category} className="mb-3">
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-2">
                           {cat.category}
@@ -143,12 +144,11 @@ export function Navbar() {
                       </div>
                     ))}
                   </div>
-                  {/* Production guides column */}
                   <div>
                     <DropdownMenuLabel className="flex items-center gap-2 text-primary font-semibold mb-2">
-                      Production Guides
+                      Team Guides
                     </DropdownMenuLabel>
-                    {toolsMenu.production.map((cat) => (
+                    {toolsMenu.teams.map((cat) => (
                       <div key={cat.category} className="mb-3">
                         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-2">
                           {cat.category}
@@ -210,8 +210,8 @@ export function Navbar() {
               <Link href="/#how-it-works">How it works</Link>
             </Button>
             <Button size="sm" rounded="full" className="gap-1.5" asChild>
-              <Link href="/#generator">
-                Generate Now
+              <Link href="/#agent-workspace">
+                Build Agent
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </Link>
             </Button>
@@ -272,8 +272,8 @@ export function Navbar() {
 
               <div className="flex-1 overflow-y-auto px-6 pt-4 pb-4">
                 {/* Tools Section */}
-                <div className="px-4 py-2 text-xs font-medium text-primary uppercase tracking-wider">Video Tools</div>
-                {toolsMenu.video.map((cat) => (
+                <div className="px-4 py-2 text-xs font-medium text-primary uppercase tracking-wider">Agent Tools</div>
+                {toolsMenu.agent.map((cat) => (
                   <div key={cat.category}>
                     <div className="px-4 py-1 text-xs text-muted-foreground">{cat.category}</div>
                     {cat.items.map((item) => (
@@ -293,9 +293,9 @@ export function Navbar() {
                   </div>
                 ))}
                 <div className="px-4 py-2 text-xs font-medium text-primary uppercase tracking-wider flex items-center gap-1">
-                  Production Guides
+                  Team Guides
                 </div>
-                {toolsMenu.production.map((cat) => (
+                {toolsMenu.teams.map((cat) => (
                   <div key={cat.category}>
                     <div className="px-4 py-1 text-xs text-muted-foreground">{cat.category}</div>
                     {cat.items.map((item) => (
@@ -354,8 +354,8 @@ export function Navbar() {
                   </Link>
                 </Button>
                 <Button rounded="full" className="py-6 text-base w-full" asChild>
-                  <Link href="/#generator" onClick={() => setMobileMenuOpen(false)}>
-                    Generate Now
+                  <Link href="/#agent-workspace" onClick={() => setMobileMenuOpen(false)}>
+                    Build Agent
                   </Link>
                 </Button>
               </div>

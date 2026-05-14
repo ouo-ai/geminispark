@@ -29,15 +29,15 @@ export function FinalCTA() {
             </div>
             
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-display mb-6 text-foreground">
-              Ready to generate your next clip?
+              Ready to structure your next agent task?
             </h2>
             <p className="text-lg text-muted-foreground mb-10 max-w-xl mx-auto">
-              Open Gemini Spark, write a scene, and start a real AI video generation task.
+              Open Gemini Spark, describe the objective, and build an agent-ready brief.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button size="xl" rounded="full" className="gap-2 min-w-[200px]" asChild>
-                <a href="#generator">
-                  Generate Video
+                <a href="#agent-workspace">
+                  Build Agent Brief
                   <ArrowRight className="w-4 h-4" />
                 </a>
               </Button>
@@ -48,7 +48,7 @@ export function FinalCTA() {
               </Button>
             </div>
             <p className="mt-6 text-xs text-muted-foreground">
-              The API key stays server-side. The browser only talks to Gemini Spark.
+              The workspace helps you plan roles, workflows, and acceptance checks before execution.
             </p>
           </motion.div>
         </div>

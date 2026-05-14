@@ -7,12 +7,12 @@ const faqs = [
   {
     question: "What is Gemini Spark and how does it work?",
     answer:
-      "Gemini Spark is an AI video generator that turns a text prompt, and optionally one public reference image URL, into a short video generation task. The page submits the task through a secure server route and checks status until the result is ready.",
+      "Gemini Spark is an AI agent workspace that turns rough objectives into structured briefs with roles, workflow steps, constraints, expected outputs, and acceptance checks.",
   },
   {
     question: "What model name is shown in the product?",
     answer:
-      "The product interface displays the model as Gemini Spark. Supplier routing and API credentials stay on the server and are not exposed in the browser.",
+      "The product interface displays the model name as Gemini Spark.",
   },
   {
     question: "Is Gemini Spark affiliated with Google?",
@@ -22,17 +22,17 @@ const faqs = [
   {
     question: "Who is Gemini Spark built for?",
     answer:
-      "Creators, marketers, founders, educators, consultants, and teams who need short AI videos for product launches, explainers, social ads, lessons, and concept previews.",
+      "Gemini Spark is built for creators, marketers, founders, educators, consultants, and teams that need clearer agent briefs for research, marketing, product, and operations work.",
   },
   {
     question: "What can I create with Gemini Spark?",
     answer:
-      "You can create text-to-video and image-to-video tasks for product reveals, campaign clips, social teasers, explainer scenes, and visual concept tests.",
+      "You can create agent-ready task briefs, workflow outlines, acceptance checks, handoff notes, and prompt structures for repeatable work.",
   },
   {
-    question: "Why do video links need to be saved?",
+    question: "Does Gemini Spark execute tasks automatically?",
     answer:
-      "Generated video links from the upstream task system may expire, so download or save any result you want to keep after the task completes.",
+      "Gemini Spark focuses on planning and structuring the agent task. Execution depends on the AI tool, runtime, or team process you use after the brief is ready.",
   },
 ]
 

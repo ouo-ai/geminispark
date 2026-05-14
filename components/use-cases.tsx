@@ -6,42 +6,42 @@ import { Palette, Megaphone, GraduationCap, Code, Briefcase, Users, PenTool, Roc
 const useCases = [
   {
     category: "Creators",
-    question: "How can I turn a rough concept into a short cinematic clip?",
+    question: "How can I turn a rough idea into a structured agent brief?",
     icon: Palette,
   },
   {
     category: "Marketers",
-    question: "Need fast product reveal videos for launch and paid social?",
+    question: "Need a launch planning agent for audience, offer, and channel work?",
     icon: Megaphone,
   },
   {
     category: "Educators",
-    question: "Want quick explainer clips for lessons and course modules?",
+    question: "Want a research workflow that turns source notes into lesson plans?",
     icon: GraduationCap,
   },
   {
     category: "Builders",
-    question: "How do I show a product workflow as a simple motion demo?",
+    question: "How do I turn product requirements into repeatable agent tasks?",
     icon: Code,
   },
   {
     category: "Consultants",
-    question: "Looking to mock up client video concepts before production?",
+    question: "Looking to turn client goals into clear deliverable workflows?",
     icon: Briefcase,
   },
   {
     category: "Teams",
-    question: "Need one shared place to test video generation prompts?",
+    question: "Need one shared place to plan agent roles, checks, and handoffs?",
     icon: Users,
   },
   {
     category: "Writers",
-    question: "How can I visualize scenes from a script or campaign idea?",
+    question: "How can I turn article research into an agent-ready writing brief?",
     icon: PenTool,
   },
   {
     category: "Founders",
-    question: "Want an investor-ready teaser for a product story?",
+    question: "Want an operating workflow for strategy, research, and follow-up?",
     icon: Rocket,
   },
 ]
@@ -80,7 +80,7 @@ export function UseCases() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto"
         >
-          From solo creators to product teams, anyone turning ideas into motion
+          From solo creators to product teams, anyone turning goals into repeatable agent workflows
         </motion.p>
       </div>
 

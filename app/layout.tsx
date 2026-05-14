@@ -14,19 +14,19 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://geminispark.ai"
 
 export const metadata: Metadata = {
   applicationName: "Gemini Spark",
-  title: "Gemini Spark - AI Video Generator",
+  title: "Gemini Spark - AI Agent Workspace",
   description:
-    "Gemini Spark is an independent AI video generator for turning prompts and public reference images into short cinematic videos.",
+    "Gemini Spark is an independent AI agent workspace for turning rough goals into structured agent briefs, workflows, and task plans.",
   keywords: [
     "Gemini Spark",
-    "AI video generator",
-    "Gemini Spark video",
-    "text to video",
-    "image to video",
-    "AI video creation",
-    "cinematic AI video",
-    "video generation",
-    "prompt to video",
+    "AI agent",
+    "AI agent workspace",
+    "AI agent builder",
+    "AI agent workflow",
+    "AI task agent",
+    "agent prompt guide",
+    "agent prompt examples",
+    "workflow automation",
   ],
   authors: [{ name: "Gemini Spark" }],
   creator: "Gemini Spark",
@@ -40,23 +40,23 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: siteUrl,
     siteName: "Gemini Spark",
-    title: "Gemini Spark - AI Video Generator",
+    title: "Gemini Spark - AI Agent Workspace",
     description:
-      "Generate short AI videos from prompts or public reference images with Gemini Spark.",
+      "Turn rough goals into structured AI agent briefs, workflows, and task plans with Gemini Spark.",
     images: [
       {
         url: `${siteUrl}/opengraph-image`,
         width: 1200,
         height: 630,
-        alt: "Gemini Spark - AI Video Generator",
+        alt: "Gemini Spark - AI Agent Workspace",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Gemini Spark - AI Video Generator",
+    title: "Gemini Spark - AI Agent Workspace",
     description:
-      "Generate short AI videos from prompts or public reference images with Gemini Spark.",
+      "Turn rough goals into structured AI agent briefs, workflows, and task plans with Gemini Spark.",
     images: [`${siteUrl}/opengraph-image`],
     creator: "@geminispark",
   },
@@ -66,7 +66,6 @@ export const metadata: Metadata = {
     googleBot: {
       index: true,
       follow: true,
-      "max-video-preview": -1,
       "max-image-preview": "large",
       "max-snippet": -1,
     },
@@ -123,7 +122,7 @@ export default function RootLayout({
         name: "Gemini Spark",
         url: siteUrl,
         description:
-          "Gemini Spark is an independent AI video generation brand. It is not affiliated with Google or Google Gemini.",
+          "Gemini Spark is an independent AI agent workspace. It is not affiliated with Google or Google Gemini.",
       },
       {
         "@type": "WebSite",
@@ -137,10 +136,10 @@ export default function RootLayout({
         "@type": "SoftwareApplication",
         "@id": `${siteUrl}/#software`,
         name: "Gemini Spark",
-        applicationCategory: "MultimediaApplication",
+        applicationCategory: "ProductivityApplication",
         operatingSystem: "Web",
         description:
-          "Gemini Spark is an independent AI video generator for creating short videos from prompts and public reference images.",
+          "Gemini Spark is an independent AI agent workspace for turning goals into structured briefs, workflows, and task plans.",
         url: siteUrl,
         isAccessibleForFree: true,
         publisher: { "@id": `${siteUrl}/#organization` },
@@ -149,44 +148,14 @@ export default function RootLayout({
           price: "0",
           priceCurrency: "USD",
           availability: "https://schema.org/InStock",
-          description: "Video generation is available through the Gemini Spark web interface.",
+          description: "Agent brief planning is available through the Gemini Spark web interface.",
         },
         featureList: [
-          "Text-to-video generation",
-          "Image-to-video generation from public image URLs",
-          "Generation task tracking",
-          "Landscape and portrait output options",
-          "Short-form cinematic video creation",
-        ],
-      },
-      {
-        "@type": "FAQPage",
-        "@id": `${siteUrl}/#faq`,
-        mainEntity: [
-          {
-            "@type": "Question",
-            name: "What is Gemini Spark and how does it work?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "Gemini Spark is an independent AI video generator that submits prompt-based video tasks and tracks generation status until the video result is ready.",
-            },
-          },
-          {
-            "@type": "Question",
-            name: "Can Gemini Spark generate video from an image?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "Yes. Gemini Spark supports text-to-video by default and can use one public image URL as a reference for image-to-video generation.",
-            },
-          },
-          {
-            "@type": "Question",
-            name: "Is Gemini Spark affiliated with Google?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "No. Gemini Spark is an independent product and is not affiliated with Google or Google Gemini.",
-            },
-          },
+          "AI agent brief builder",
+          "Agent workflow planning",
+          "Role and acceptance-check generation",
+          "Research, marketing, product, and operations modes",
+          "Reusable task planning structure",
         ],
       },
     ],

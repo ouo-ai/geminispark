@@ -3,19 +3,19 @@ import Image from "next/image"
 
 const footerLinks = {
   Product: [
-    { label: "Generator", href: "/#generator" },
+    { label: "Agent Workspace", href: "/#agent-workspace" },
     { label: "Features", href: "/#features" },
     { label: "Use Cases", href: "/#use-cases" },
   ],
   Resources: [
-    { label: "AI Video Generator", href: "/ai-video-generator" },
-    { label: "Text to Video AI", href: "/text-to-video-ai" },
-    { label: "Image to Video AI", href: "/image-to-video-ai" },
+    { label: "AI Agent", href: "/ai-agent" },
+    { label: "AI Agent Builder", href: "/ai-agent-builder" },
+    { label: "AI Agent Workflow", href: "/ai-agent-workflow" },
   ],
   Guides: [
-    { label: "Prompt Guide", href: "/ai-video-prompt-guide" },
-    { label: "Prompt Examples", href: "/ai-video-prompt-examples" },
-    { label: "Marketing Videos", href: "/ai-video-generator-for-marketing" },
+    { label: "Prompt Guide", href: "/ai-agent-prompt-guide" },
+    { label: "Prompt Examples", href: "/ai-agent-prompt-examples" },
+    { label: "Marketing Agents", href: "/ai-agent-for-marketing" },
   ],
 }
 
@@ -33,9 +33,7 @@ export function Footer() {
                 Gemini Spark
               </span>
             </Link>
-            <p className="text-xs sm:text-sm text-muted-foreground mb-3">
-              Turn prompts into short AI videos.
-            </p>
+            <p className="text-xs sm:text-sm text-muted-foreground mb-3">Turn goals into AI agent briefs.</p>
             <p className="text-[10px] text-muted-foreground/60">
               Not affiliated with Google or Google Gemini.
             </p>
@@ -67,7 +65,7 @@ export function Footer() {
             &copy; {new Date().getFullYear()} Gemini Spark. All rights reserved.
           </p>
           <p className="text-[10px] sm:text-xs text-muted-foreground/70">
-            Independent AI video generation site for geminispark.ai.
+            Independent AI agent workspace site for geminispark.ai.
           </p>
         </div>
       </div>

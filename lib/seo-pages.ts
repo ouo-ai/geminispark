@@ -28,554 +28,554 @@ export type SeoPage = {
 
 export const seoPages: SeoPage[] = [
   {
-    slug: "ai-video-generator",
-    title: "AI Video Generator for Short Creative Clips | Gemini Spark",
+    slug: "ai-agent",
+    title: "AI Agent Workspace for Structured Tasks | Gemini Spark",
     description:
-      "Use Gemini Spark as an AI video generator for short prompt-based clips, product ideas, social concepts, and reference-image video tasks.",
-    primaryKeyword: "AI video generator",
-    secondaryKeywords: ["prompt to video", "AI video creation", "short AI video generator"],
+      "Use Gemini Spark as an AI agent workspace for turning goals into structured plans, roles, checks, and next actions.",
+    primaryKeyword: "AI agent",
+    secondaryKeywords: ["AI agent workspace", "AI task agent", "Gemini Spark agent"],
     hero: {
-      eyebrow: "AI video generator",
-      headline: "AI video generator for short creative clips",
+      eyebrow: "AI agent",
+      headline: "AI agent workspace for structured task execution",
       intro:
-        "Gemini Spark helps creators turn a clear prompt, and optionally one public reference image, into a trackable AI video generation task.",
+        "Gemini Spark helps teams turn a rough goal into an agent-ready brief with role, steps, context, checks, and a clear next action.",
     },
     sections: [
       {
-        heading: "What an AI video generator does",
+        heading: "What an AI agent does",
         body:
-          "An AI video generator turns written direction into a short motion result. A useful prompt usually names the subject, camera movement, setting, lighting, mood, and output format before the task starts.",
+          "An AI agent is useful when a task needs more than one response. It needs a goal, constraints, source context, a plan, and a way to verify the result.",
         points: [
-          "Use text prompts for new scenes, concepts, and campaign ideas.",
-          "Use a public reference image when framing or visual direction matters.",
-          "Track generation status so the workflow does not disappear after submission.",
+          "Turn broad goals into focused agent briefs.",
+          "Break work into steps that can be reviewed and repeated.",
+          "Keep assumptions and completion checks visible before execution.",
         ],
       },
       {
         heading: "Where Gemini Spark fits",
         body:
-          "Gemini Spark is built for focused short-form generation workflows rather than long timeline editing. It keeps the prompt, aspect ratio, duration, task ID, and result preview in one place.",
+          "Gemini Spark focuses on the planning layer of agent work. It helps you shape what the agent should do before a task moves into execution.",
         points: [
-          "Create landscape concepts for product pages and demos.",
-          "Create portrait concepts for shorts, reels, and ad tests.",
-          "Keep supplier credentials server-side while the browser uses Gemini Spark routes.",
+          "Define the role and expected output for each task.",
+          "Capture inputs, constraints, and quality checks in one workspace.",
+          "Use the same brief structure across research, marketing, product, and operations work.",
         ],
       },
       {
-        heading: "How to get cleaner results",
+        heading: "How to write better agent tasks",
         body:
-          "AI video quality depends heavily on prompt clarity. Treat each clip like a compact shot brief and avoid asking one short generation to cover too many story beats.",
+          "Agent outcomes improve when the task has a narrow goal and clear stopping conditions. A good brief tells the agent what to optimize for and what not to do.",
         points: [
-          "Start with one scene and one main subject.",
-          "Add camera language such as dolly, close-up, wide shot, or slow pan.",
-          "Specify motion only when it matters to the viewer.",
+          "Start with the target outcome, not only the topic.",
+          "Add constraints such as audience, tone, deadline, and forbidden claims.",
+          "Define acceptance checks so the result can be judged objectively.",
         ],
       },
     ],
     faqs: [
       {
-        question: "Can an AI video generator create a complete long video?",
+        question: "What is an AI agent?",
         answer:
-          "Gemini Spark focuses on short generation tasks. Longer videos usually need several generated clips edited together after generation.",
+          "An AI agent is a workflow-oriented AI setup that can plan, reason through steps, use context, and produce a task-specific result.",
       },
       {
-        question: "Does Gemini Spark support image-to-video?",
+        question: "How is Gemini Spark different from a chatbot?",
         answer:
-          "Yes. You can paste a public image URL to guide an image-to-video task, or leave it blank for text-to-video.",
+          "Gemini Spark focuses on structuring a task brief before execution, while a chatbot often starts with a single open-ended message.",
       },
       {
-        question: "What should I include in an AI video prompt?",
+        question: "What should I include in an AI agent brief?",
         answer:
-          "Include subject, action, setting, camera movement, visual style, mood, and the aspect ratio you need.",
+          "Include the goal, role, context, constraints, steps, expected output, and acceptance checks.",
       },
     ],
-    relatedSlugs: ["text-to-video-ai", "image-to-video-ai", "ai-video-prompt-guide"],
+    relatedSlugs: ["ai-agent-builder", "ai-agent-workflow", "ai-agent-prompt-guide"],
     cta: {
-      label: "Start an AI video task",
-      href: "/#generator",
+      label: "Build an agent brief",
+      href: "/#agent-workspace",
     },
     priority: 0.85,
   },
   {
-    slug: "text-to-video-ai",
-    title: "Text to Video AI Generator Workflow | Gemini Spark",
+    slug: "ai-agent-builder",
+    title: "AI Agent Builder for Task Briefs | Gemini Spark",
     description:
-      "Learn how to write text to video AI prompts that produce clearer short clips with subject, motion, camera, and style direction.",
-    primaryKeyword: "text to video AI",
-    secondaryKeywords: ["text to video generator", "prompt to video AI", "AI video prompt"],
+      "Build AI agent briefs with Gemini Spark by defining the objective, role, workflow steps, constraints, and acceptance checks.",
+    primaryKeyword: "AI agent builder",
+    secondaryKeywords: ["build AI agents", "AI agent brief", "task agent builder"],
     hero: {
-      eyebrow: "Text to video AI",
-      headline: "Text to video AI starts with a strong shot brief",
+      eyebrow: "AI agent builder",
+      headline: "AI agent builder for clear task briefs",
       intro:
-        "Gemini Spark turns a written prompt into a video task, so the prompt needs enough visual direction to guide the generated clip.",
+        "Gemini Spark helps you build reusable agent briefs that describe what the agent should do, what inputs matter, and how success should be checked.",
     },
     sections: [
       {
-        heading: "Write the prompt like a shot",
+        heading: "Start with the job to be done",
         body:
-          "The strongest text to video AI prompts describe one scene at a time. Instead of writing a broad story, define what the viewer should see during the clip.",
+          "An AI agent builder should begin with a concrete outcome. The more specific the job, the easier it is to choose a useful role, workflow, and output format.",
         points: [
-          "Name the main subject and what it is doing.",
-          "Describe the environment and lighting.",
-          "Choose a camera movement that supports the moment.",
+          "Describe the target result in one sentence.",
+          "Name the audience or stakeholder who will use the result.",
+          "Choose the deliverable format before the task begins.",
         ],
       },
       {
-        heading: "Choose the right format",
+        heading: "Add role and constraints",
         body:
-          "Landscape and portrait prompts can use the same idea, but the composition should change. Portrait clips need a centered subject and less horizontal action.",
+          "Agent briefs are stronger when the role and boundaries are explicit. This prevents the agent from optimizing for the wrong audience or making unsupported claims.",
         points: [
-          "Use 16:9 for landing pages, demos, and presentation visuals.",
-          "Use 9:16 for social clips and mobile-first concepts.",
-          "Keep important action inside the safe center area.",
+          "Use roles such as research analyst, launch strategist, product operator, or content planner.",
+          "Add constraints around tone, evidence, claims, source use, and depth.",
+          "Define what the agent should avoid when completing the task.",
         ],
       },
       {
-        heading: "Avoid overloading a short clip",
+        heading: "Turn the brief into a repeatable pattern",
         body:
-          "Short AI video generations work better when each task has a single job. If the idea has multiple beats, split it into several prompts and edit the clips together later.",
+          "A good builder makes agent work repeatable. Save the structure, then adjust the objective and context when a similar task appears again.",
         points: [
-          "One prompt should usually describe one scene.",
-          "Avoid asking for dense text inside the video.",
-          "Use repeatable prompt structure for multiple variations.",
+          "Reuse the same steps for recurring work.",
+          "Change only the goal, context, and acceptance checks when possible.",
+          "Compare outputs against the same quality bar each time.",
         ],
       },
     ],
     faqs: [
       {
-        question: "What is text to video AI?",
+        question: "Can Gemini Spark build a complete AI agent?",
         answer:
-          "Text to video AI creates a video task from a written prompt that describes the scene, movement, and style.",
+          "Gemini Spark builds an agent-ready task brief and workflow outline. Execution depends on the agent runtime or AI tool you connect it to.",
       },
       {
-        question: "How long should a text to video prompt be?",
+        question: "What makes an agent brief reusable?",
         answer:
-          "A useful prompt is often one compact paragraph with subject, action, setting, camera, and style details.",
+          "A reusable brief separates stable process steps from task-specific context, so the same structure can support similar work.",
       },
       {
-        question: "Can Gemini Spark generate text-to-video without an image?",
+        question: "Should every task become an AI agent?",
         answer:
-          "Yes. Leave the reference image field blank and submit a text prompt to start a text-to-video task.",
+          "No. Simple one-off questions may not need an agent. Agent briefs are more useful for multi-step work with quality checks.",
       },
     ],
-    relatedSlugs: ["ai-video-generator", "ai-video-prompt-guide", "ai-video-prompt-examples"],
+    relatedSlugs: ["ai-agent", "ai-agent-workflow", "ai-agent-prompt-examples"],
     cta: {
-      label: "Write a text-to-video prompt",
-      href: "/#generator",
+      label: "Build an agent brief",
+      href: "/#agent-workspace",
     },
     priority: 0.85,
   },
   {
-    slug: "image-to-video-ai",
-    title: "Image to Video AI Generator Workflow | Gemini Spark",
+    slug: "ai-agent-workflow",
+    title: "AI Agent Workflow Planning Guide | Gemini Spark",
     description:
-      "Use image to video AI with Gemini Spark by pairing a public reference image URL with a clear motion and camera prompt.",
-    primaryKeyword: "image to video AI",
-    secondaryKeywords: ["image to video generator", "animate image with AI", "reference image video"],
+      "Plan AI agent workflows with clear inputs, steps, checks, and handoffs for research, marketing, product, and operations tasks.",
+    primaryKeyword: "AI agent workflow",
+    secondaryKeywords: ["agent workflow", "AI workflow planner", "agent task workflow"],
     hero: {
-      eyebrow: "Image to video AI",
-      headline: "Image to video AI for guided motion concepts",
+      eyebrow: "AI agent workflow",
+      headline: "AI agent workflow planning for repeatable work",
       intro:
-        "Gemini Spark can use a public reference image URL to guide a video task while your prompt controls motion, camera, and mood.",
+        "Gemini Spark helps you map a goal into a repeatable agent workflow with steps, checkpoints, and a practical completion standard.",
     },
     sections: [
       {
-        heading: "Use the image for visual direction",
+        heading: "Map inputs before actions",
         body:
-          "A reference image gives the generation task a visual starting point. The prompt should still explain what should move and how the camera should behave.",
+          "An agent workflow should start by listing the inputs the task needs. Missing context creates weak outputs even when the step list looks complete.",
         points: [
-          "Use public image URLs that can be fetched by the server.",
-          "Describe the motion you want the still image to imply.",
-          "Keep the image and prompt aligned around one subject.",
+          "Capture source material, business context, and constraints.",
+          "Separate required inputs from optional references.",
+          "State what the agent should do when context is missing.",
         ],
       },
       {
-        heading: "Prompt motion carefully",
+        heading: "Use checkpoints between steps",
         body:
-          "Image-to-video is clearer when motion is specific. Instead of asking for everything to animate, name the subject movement, camera movement, and background behavior.",
+          "Checkpoints make a workflow easier to trust. They tell the agent where to verify assumptions, reconcile evidence, and decide whether the next step is ready.",
         points: [
-          "Use phrases like slow push-in, gentle rotation, or subtle product reveal.",
-          "Avoid complex multi-character action in a short clip.",
-          "State whether the look should be cinematic, clean, playful, or realistic.",
+          "Check that the task matches the original goal.",
+          "Review claims before writing final output.",
+          "Confirm the final deliverable matches the requested format.",
         ],
       },
       {
-        heading: "Use it for concept testing",
+        heading: "Design for handoff",
         body:
-          "A reference image is helpful when you already have product art, a mockup, an illustration, or a scene frame and want to test motion before production.",
+          "A useful workflow ends with a result another person can use. The output should include decisions, unresolved questions, and the next action.",
         points: [
-          "Turn product mockups into launch teaser concepts.",
-          "Animate campaign visuals for social tests.",
-          "Explore camera movement around one still composition.",
+          "Summarize what changed and why it matters.",
+          "List blockers separately from completed work.",
+          "Give the next operator a clear starting point.",
         ],
       },
     ],
     faqs: [
       {
-        question: "What image URLs work with Gemini Spark?",
+        question: "What is an AI agent workflow?",
         answer:
-          "Use a public HTTP or HTTPS image URL. Private files, local files, and gated URLs may not be reachable by the server.",
+          "An AI agent workflow is a structured sequence of steps, checks, and outputs that guides an agent through a multi-step task.",
       },
       {
-        question: "Is image-to-video better than text-to-video?",
+        question: "How many steps should an agent workflow include?",
         answer:
-          "It depends on the goal. Image-to-video is useful when visual direction matters; text-to-video is better for open-ended scene creation.",
+          "Use enough steps to make the work clear, but avoid unnecessary detail. Three to seven steps is often enough for a focused task.",
       },
       {
-        question: "Can I use image-to-video for product concepts?",
+        question: "Can one workflow support multiple teams?",
         answer:
-          "Yes. Product mockups and campaign images are good candidates when paired with a clear motion prompt.",
+          "Yes, if the workflow keeps shared steps stable and lets each team change context, tone, and acceptance checks.",
       },
     ],
-    relatedSlugs: ["ai-video-generator", "ai-product-video-generator", "ai-video-prompt-examples"],
+    relatedSlugs: ["ai-agent-builder", "ai-agent-prompt-guide", "ai-agent-for-product-teams"],
     cta: {
-      label: "Try image-to-video",
-      href: "/#generator",
+      label: "Plan an agent workflow",
+      href: "/#agent-workspace",
     },
     priority: 0.85,
   },
   {
-    slug: "ai-video-generator-for-marketing",
-    title: "AI Video Generator for Marketing Concepts | Gemini Spark",
+    slug: "ai-agent-for-marketing",
+    title: "AI Agent for Marketing Planning | Gemini Spark",
     description:
-      "Plan short marketing video concepts with Gemini Spark for campaign tests, offer visuals, product launches, and social creative.",
-    primaryKeyword: "AI video generator for marketing",
-    secondaryKeywords: ["AI marketing video generator", "AI video ads", "campaign video ideas"],
+      "Use Gemini Spark to structure AI agent briefs for campaign planning, audience research, launch copy, and marketing operations.",
+    primaryKeyword: "AI agent for marketing",
+    secondaryKeywords: ["marketing AI agent", "campaign planning agent", "AI agent for marketers"],
     hero: {
-      eyebrow: "Marketing videos",
-      headline: "AI video generator for marketing concept tests",
+      eyebrow: "Marketing agent",
+      headline: "AI agent for marketing planning and campaign work",
       intro:
-        "Gemini Spark helps marketing teams turn campaign ideas into short video tasks for launches, offers, and creative exploration.",
+        "Gemini Spark helps marketers turn campaign goals into agent-ready tasks for audience research, positioning, briefs, and launch planning.",
     },
     sections: [
       {
-        heading: "Use AI video for fast creative exploration",
+        heading: "Turn campaign goals into agent tasks",
         body:
-          "Marketing teams often need to test angles before production. Short AI video tasks can help visualize positioning, mood, and creative direction quickly.",
+          "Marketing work often mixes audience, offer, channel, and messaging decisions. An agent brief helps keep those decisions structured.",
         points: [
-          "Draft product reveals for landing pages.",
-          "Explore offer visuals for social campaigns.",
-          "Create concept clips before committing to production.",
+          "Define the target audience and campaign objective.",
+          "List product facts and claims that are approved for use.",
+          "Ask for output in a useful format such as a brief, matrix, or checklist.",
         ],
       },
       {
-        heading: "Match the clip to the campaign job",
+        heading: "Use agents for research and synthesis",
         body:
-          "A marketing video prompt should match a specific job: explain the product, dramatize a pain point, show a transformation, or create a teaser.",
+          "Marketing agents are useful for organizing research inputs, comparing angles, and turning scattered notes into a usable campaign direction.",
         points: [
-          "Use product reveal prompts for launch pages.",
-          "Use before-and-after prompts for transformation stories.",
-          "Use vertical concepts for mobile social channels.",
+          "Cluster customer pain points into messaging themes.",
+          "Summarize competitor positioning without copying it.",
+          "Turn launch notes into channel-specific next steps.",
         ],
       },
       {
-        heading: "Keep claims out of the generated clip",
+        heading: "Keep review gates visible",
         body:
-          "For early concepts, focus on visual storytelling and avoid hard performance claims in the prompt. Add regulated claims and exact copy in editing after review.",
+          "Marketing output often needs claim review. The brief should tell the agent to mark assumptions and separate evidence-backed points from suggestions.",
         points: [
-          "Avoid asking the model to render detailed ad text.",
-          "Use visuals to set the mood and story.",
-          "Review all final marketing assets before publishing.",
+          "Separate facts, assumptions, and recommendations.",
+          "Avoid unsupported performance claims.",
+          "Keep final copy review with the human owner.",
         ],
       },
     ],
     faqs: [
       {
-        question: "Can AI video help with marketing before a campaign is final?",
+        question: "How can marketers use an AI agent?",
         answer:
-          "Yes. Short video tasks are useful for testing creative direction, scene ideas, and visual style before production.",
+          "Marketers can use an AI agent to structure research, campaign briefs, positioning options, content plans, and launch checklists.",
       },
       {
-        question: "Should I include ad copy in the video prompt?",
+        question: "Should an AI agent write final marketing claims?",
         answer:
-          "Keep exact ad copy outside the generated clip when possible. Add text overlays in editing for better control.",
+          "It can draft options, but final claims should be reviewed against approved product facts and legal requirements.",
       },
       {
-        question: "What format works for marketing clips?",
+        question: "What should a marketing agent brief include?",
         answer:
-          "Use 16:9 for websites and decks, and 9:16 for mobile-first social concepts.",
+          "Include audience, offer, product facts, channel, tone, constraints, and the expected deliverable.",
       },
     ],
-    relatedSlugs: ["ai-product-video-generator", "ai-video-generator-for-social-media", "ai-video-prompt-guide"],
+    relatedSlugs: ["ai-agent-prompt-guide", "ai-agent-prompt-examples", "ai-agent-workflow"],
     cta: {
-      label: "Create a marketing clip",
-      href: "/#generator",
+      label: "Plan a marketing agent",
+      href: "/#agent-workspace",
     },
     priority: 0.75,
   },
   {
-    slug: "ai-product-video-generator",
-    title: "AI Product Video Generator for Launch Concepts | Gemini Spark",
+    slug: "ai-agent-for-product-teams",
+    title: "AI Agent for Product Teams | Gemini Spark",
     description:
-      "Create short AI product video concepts for launches, demos, feature reveals, and SaaS storytelling with Gemini Spark.",
-    primaryKeyword: "AI product video generator",
-    secondaryKeywords: ["product video AI", "AI product reveal", "SaaS product video generator"],
+      "Plan AI agent tasks for product research, feature briefs, release planning, feedback synthesis, and product operations.",
+    primaryKeyword: "AI agent for product teams",
+    secondaryKeywords: ["product AI agent", "AI agent for product managers", "product operations agent"],
     hero: {
-      eyebrow: "Product videos",
-      headline: "AI product video generator for launch concepts",
+      eyebrow: "Product agent",
+      headline: "AI agent for product teams and operating work",
       intro:
-        "Gemini Spark helps product teams turn feature ideas, mockups, and launch scenes into short video generation tasks.",
+        "Gemini Spark helps product teams structure agent tasks for research synthesis, feature framing, release planning, and decision support.",
     },
     sections: [
       {
-        heading: "Start with one product moment",
+        heading: "Clarify the product decision",
         body:
-          "Product video prompts are clearer when they focus on one moment: a reveal, a workflow, a transformation, or a feature highlight.",
+          "Product agent tasks should start with the decision or deliverable the team needs. This keeps the agent from producing broad notes without a clear use.",
         points: [
-          "Show the product appearing in context.",
-          "Use clean motion around a dashboard, device, or object.",
-          "Keep the scene simple enough for a short clip.",
+          "State the product question being answered.",
+          "Name the stakeholder who will use the result.",
+          "Ask for tradeoffs, risks, and recommended next actions.",
         ],
       },
       {
-        heading: "Use reference images for product direction",
+        heading: "Structure feedback synthesis",
         body:
-          "If you have a mockup, product image, or launch visual, use a public image URL to guide the generation task and describe the movement you want.",
+          "Agents can help organize customer notes, tickets, and research summaries when the brief defines categories and quality checks.",
         points: [
-          "A mockup can guide composition and palette.",
-          "The prompt controls camera and motion.",
-          "Generated clips can support product storyboarding.",
+          "Group feedback by theme, impact, and frequency.",
+          "Separate direct evidence from interpretation.",
+          "Surface unanswered questions for follow-up.",
         ],
       },
       {
-        heading: "Plan for editing after generation",
+        heading: "Support release planning",
         body:
-          "Generated product clips are most useful as source material. Final product names, interface details, and legal claims should be added in a controlled editing step.",
+          "Product teams can use agent briefs to prepare launch checklists, release notes, risk reviews, and handoff documents.",
         points: [
-          "Use AI video for mood, motion, and concept speed.",
-          "Add exact UI text later when precision matters.",
-          "Save task IDs for tracking iterations.",
+          "Turn feature notes into launch tasks.",
+          "Create stakeholder-specific summaries.",
+          "Check that the output matches the release stage.",
         ],
       },
     ],
     faqs: [
       {
-        question: "Can Gemini Spark create SaaS product video concepts?",
+        question: "Can product teams use Gemini Spark for research synthesis?",
         answer:
-          "Yes. It can generate short product concept tasks from prompts or public reference images.",
+          "Yes. Gemini Spark can structure the brief for an agent that synthesizes notes, feedback, and product context.",
       },
       {
-        question: "Should I ask for exact UI text in the video?",
+        question: "What product tasks are a good fit for AI agents?",
         answer:
-          "No. Exact UI text is better added after generation so it stays accurate and readable.",
+          "Research summaries, feature briefs, release planning, feedback clustering, and decision support are common fits.",
       },
       {
-        question: "What product video prompt works well?",
+        question: "How do I keep product agent output useful?",
         answer:
-          "Describe the product, the reveal moment, camera movement, lighting, and the intended format.",
+          "Define the product question, input sources, expected format, and acceptance checks before the agent starts.",
       },
     ],
-    relatedSlugs: ["ai-video-generator-for-marketing", "image-to-video-ai", "ai-video-prompt-examples"],
+    relatedSlugs: ["ai-agent-workflow", "ai-agent-for-research", "ai-agent-prompt-guide"],
     cta: {
-      label: "Generate a product concept",
-      href: "/#generator",
+      label: "Plan a product agent",
+      href: "/#agent-workspace",
     },
     priority: 0.75,
   },
   {
-    slug: "ai-video-generator-for-social-media",
-    title: "AI Video Generator for Social Media Clips | Gemini Spark",
+    slug: "ai-agent-for-research",
+    title: "AI Agent for Research Tasks | Gemini Spark",
     description:
-      "Use Gemini Spark to create short AI video concepts for social media formats, launch teasers, reels, shorts, and campaign tests.",
-    primaryKeyword: "AI video generator for social media",
-    secondaryKeywords: ["AI video for reels", "AI video for shorts", "social media video generator"],
+      "Use Gemini Spark to plan AI agent research tasks with questions, sources, synthesis steps, caveats, and final output checks.",
+    primaryKeyword: "AI agent for research",
+    secondaryKeywords: ["research AI agent", "AI research workflow", "research task agent"],
     hero: {
-      eyebrow: "Social media videos",
-      headline: "AI video generator for social media concepts",
+      eyebrow: "Research agent",
+      headline: "AI agent for research tasks and synthesis",
       intro:
-        "Gemini Spark supports short portrait and landscape video tasks for social creative, campaign tests, and quick visual exploration.",
+        "Gemini Spark helps turn a research question into an agent-ready plan with source needs, synthesis steps, caveats, and output checks.",
     },
     sections: [
       {
-        heading: "Design for mobile attention",
+        heading: "Start with the research question",
         body:
-          "Social media clips need a clear subject, immediate visual movement, and simple composition. A short prompt should make the first scene obvious.",
+          "Research agents need a precise question. A broad topic can create shallow summaries, while a focused question gives the workflow a clear direction.",
         points: [
-          "Use 9:16 for mobile-first creative concepts.",
-          "Keep one main subject in the center of the frame.",
-          "Use motion that reads quickly without sound.",
+          "Write the decision the research should support.",
+          "List the types of sources or notes available.",
+          "Ask the agent to separate findings from assumptions.",
         ],
       },
       {
-        heading: "Create variations from one idea",
+        heading: "Use synthesis checkpoints",
         body:
-          "The same campaign idea can become several AI video prompts by changing camera movement, mood, or setting while keeping the core message consistent.",
+          "A research workflow should include checkpoints for evidence quality, contradictory findings, and missing context.",
         points: [
-          "Test product reveal, transformation, and teaser angles.",
-          "Change lighting or setting between variations.",
-          "Track task IDs so you can compare results.",
+          "Mark source strength and uncertainty.",
+          "Group findings into themes before writing the conclusion.",
+          "List open questions that need more evidence.",
         ],
       },
       {
-        heading: "Keep platform-specific finishing separate",
+        heading: "Make the final output usable",
         body:
-          "Generate the core motion first, then add captions, subtitles, safe-area text, audio, and platform-specific overlays in an editor.",
+          "The research result should not just summarize. It should explain implications, risks, and recommended next steps for the audience.",
         points: [
-          "Avoid relying on generated text for final captions.",
-          "Use generated clips as visual source material.",
-          "Edit final exports for each channel requirement.",
+          "Use tables for comparisons and evidence maps.",
+          "End with decisions, caveats, and next actions.",
+          "Keep citations or source references attached when available.",
         ],
       },
     ],
     faqs: [
       {
-        question: "Can Gemini Spark create vertical social media video concepts?",
+        question: "What makes a good research agent task?",
         answer:
-          "Yes. Choose 9:16 when you want a portrait-oriented video task for mobile-first creative.",
+          "A good task includes a focused question, source expectations, synthesis steps, caveats, and a clear final output format.",
       },
       {
-        question: "Should generated social videos include captions?",
+        question: "Can an AI agent replace human research judgment?",
         answer:
-          "Captions are usually better added after generation so they remain readable and editable.",
+          "No. It can organize and synthesize information, but humans should review evidence quality and final decisions.",
       },
       {
-        question: "What social media prompts work well?",
+        question: "How should an agent handle missing sources?",
         answer:
-          "Use one strong scene, a clear subject, fast visual context, and a simple camera movement.",
+          "The brief should tell the agent to flag missing context and avoid filling gaps with unsupported claims.",
       },
     ],
-    relatedSlugs: ["ai-video-generator-for-marketing", "text-to-video-ai", "ai-video-prompt-examples"],
+    relatedSlugs: ["ai-agent-workflow", "ai-agent-for-product-teams", "ai-agent-prompt-examples"],
     cta: {
-      label: "Create a social clip",
-      href: "/#generator",
+      label: "Plan a research agent",
+      href: "/#agent-workspace",
     },
     priority: 0.75,
   },
   {
-    slug: "ai-video-prompt-guide",
-    title: "AI Video Prompt Guide for Better Short Clips | Gemini Spark",
+    slug: "ai-agent-prompt-guide",
+    title: "AI Agent Prompt Guide for Better Task Briefs | Gemini Spark",
     description:
-      "A practical AI video prompt guide for writing clearer short-form video prompts with subject, motion, camera, style, and format.",
-    primaryKeyword: "AI video prompt guide",
-    secondaryKeywords: ["AI video prompting", "video generation prompt guide", "prompt to video guide"],
+      "Use this AI agent prompt guide to write better briefs with goals, roles, context, steps, constraints, outputs, and checks.",
+    primaryKeyword: "AI agent prompt guide",
+    secondaryKeywords: ["AI agent prompt", "agent prompt framework", "AI task prompt guide"],
     hero: {
       eyebrow: "Prompt guide",
-      headline: "AI video prompt guide for better short clips",
+      headline: "AI agent prompt guide for better task briefs",
       intro:
-        "Better AI video prompts read like concise shot briefs. Use this guide to structure subject, motion, camera, and style before submitting a task.",
+        "Gemini Spark helps you write agent prompts that define the goal, role, context, steps, constraints, output, and success checks.",
     },
     sections: [
       {
-        heading: "Use a repeatable prompt structure",
+        heading: "Use a complete agent prompt structure",
         body:
-          "A repeatable structure makes prompt quality easier to improve. Start with the subject, add action, then define setting, camera, and style.",
+          "A strong AI agent prompt tells the agent what success looks like and what process to follow. It should be more specific than a general chat request.",
         points: [
-          "Subject: what the viewer sees first.",
-          "Action: what changes during the clip.",
-          "Camera and style: how the scene should feel.",
+          "Goal: what the task should accomplish.",
+          "Role: what perspective the agent should use.",
+          "Output: what format the final result should take.",
         ],
       },
       {
-        heading: "Make motion explicit",
+        heading: "Add context and constraints",
         body:
-          "AI video prompts need motion direction. If the prompt only describes a still image, the generated motion may feel random or weak.",
+          "Context keeps the agent grounded. Constraints keep it from producing work that is too broad, too risky, or hard to use.",
         points: [
-          "Describe subject movement and camera movement separately.",
-          "Use subtle motion for product and interface concepts.",
-          "Use stronger action only when it supports the scene.",
+          "Add audience, source material, tone, deadline, and non-goals.",
+          "Call out facts that must be preserved.",
+          "Tell the agent how to handle missing information.",
         ],
       },
       {
-        heading: "Control complexity",
+        heading: "Define checks before execution",
         body:
-          "Short clips should not carry a full script. If you need a multi-scene story, break it into several prompts and keep each task focused.",
+          "Acceptance checks make the final output easier to judge. They also help the agent self-review before handing back the result.",
         points: [
-          "Use one scene per generation task.",
-          "Avoid many characters, locations, or camera changes.",
-          "Iterate by changing one variable at a time.",
+          "Check whether the result answers the original goal.",
+          "Check whether assumptions are labeled clearly.",
+          "Check whether the final format matches the request.",
         ],
       },
     ],
     faqs: [
       {
-        question: "What is a good AI video prompt structure?",
+        question: "What should an AI agent prompt include?",
         answer:
-          "Use subject, action, setting, camera movement, lighting, style, and output format in one concise paragraph.",
+          "Include goal, role, context, constraints, steps, expected output, and acceptance checks.",
       },
       {
-        question: "How do I improve weak AI video results?",
+        question: "How is an agent prompt different from a normal prompt?",
         answer:
-          "Make the motion clearer, reduce scene complexity, and specify the camera behavior more directly.",
+          "An agent prompt usually defines a workflow and quality checks, not just a single answer request.",
       },
       {
-        question: "Can I reuse the same prompt format?",
+        question: "Can Gemini Spark help draft agent prompts?",
         answer:
-          "Yes. A repeatable prompt format helps compare variations and improve results over time.",
+          "Yes. Gemini Spark can turn a rough objective into a structured agent brief that you can adapt for your AI tool.",
       },
     ],
-    relatedSlugs: ["ai-video-prompt-examples", "text-to-video-ai", "ai-video-generator"],
+    relatedSlugs: ["ai-agent-prompt-examples", "ai-agent-builder", "ai-agent-workflow"],
     cta: {
-      label: "Use the prompt guide",
-      href: "/#generator",
+      label: "Draft an agent prompt",
+      href: "/#agent-workspace",
     },
     priority: 0.75,
   },
   {
-    slug: "ai-video-prompt-examples",
-    title: "AI Video Prompt Examples for Product and Social Clips | Gemini Spark",
+    slug: "ai-agent-prompt-examples",
+    title: "AI Agent Prompt Examples for Teams | Gemini Spark",
     description:
-      "Use these AI video prompt examples to create product reveals, social clips, image-to-video concepts, and short cinematic generation tasks.",
-    primaryKeyword: "AI video prompt examples",
-    secondaryKeywords: ["text to video prompt examples", "image to video prompt examples", "AI video prompts"],
+      "Use these AI agent prompt examples for marketing, research, product planning, operations, and reusable task workflows.",
+    primaryKeyword: "AI agent prompt examples",
+    secondaryKeywords: ["agent prompt examples", "AI task prompt examples", "AI workflow prompts"],
     hero: {
       eyebrow: "Prompt examples",
-      headline: "AI video prompt examples for short creative tasks",
+      headline: "AI agent prompt examples for practical team tasks",
       intro:
-        "Use these examples as starting points for Gemini Spark. Each prompt keeps one scene, one main subject, and one clear motion idea.",
+        "Use these examples as starting points for Gemini Spark. Each prompt defines a goal, role, workflow, output, and review criteria.",
     },
     sections: [
       {
-        heading: "Product reveal prompt",
+        heading: "Marketing agent prompt",
         body:
-          "A strong product reveal prompt focuses on one visual transformation and gives the camera a clear path.",
+          "Use this structure when the task needs audience thinking, messaging options, and a campaign-ready output.",
         points: [
-          "A matte black device on a clean studio surface lights up as a warm AI spark circles it, slow push-in camera, soft reflections, premium product launch mood, 16:9.",
-          "A SaaS dashboard appears from a rough wireframe sketch, clean UI panels forming with golden light trails, smooth dolly movement, dark studio background, polished launch video style.",
-          "A small product box opens and releases cyan and gold particles that become a short demo scene, close-up camera, cinematic lighting, minimal background.",
+          "Act as a launch strategist. Turn the product notes into three campaign angles for [audience]. Include target pain point, promise, proof needed, channel fit, and risks.",
+          "Act as a content planner. Build a two-week content plan from this offer. Include audience intent, post goal, angle, CTA, and review notes.",
+          "Act as a positioning analyst. Compare these customer pain points and recommend a messaging hierarchy with assumptions labeled clearly.",
         ],
       },
       {
-        heading: "Social clip prompt",
+        heading: "Research agent prompt",
         body:
-          "Social video prompts should be simple, vertical, and easy to understand without audio.",
+          "Use this structure when the agent needs to organize evidence, synthesize findings, and call out uncertainty.",
         points: [
-          "A creator holds a phone as a rough idea transforms into a polished video preview on screen, fast clean motion, bright studio, vertical 9:16 framing.",
-          "A messy campaign board reorganizes itself into three glowing video concepts, quick cuts, energetic motion, warm and cyan accents, portrait social teaser.",
-          "A product mockup floats above a desk while light trails sketch camera movement around it, concise mobile ad style, centered subject, 9:16.",
+          "Act as a research analyst. Synthesize these notes into findings, caveats, open questions, and recommended next steps for [decision].",
+          "Act as a market researcher. Group these competitor observations into themes and identify what evidence is strong, weak, or missing.",
+          "Act as an evidence reviewer. Check this draft for unsupported claims, missing context, and places where the conclusion is too broad.",
         ],
       },
       {
-        heading: "Image-to-video prompt",
+        heading: "Product agent prompt",
         body:
-          "When using a reference image, the prompt should explain what motion should happen to the still frame.",
+          "Use this structure when the task needs decisions, tradeoffs, and implementation-ready output for a product team.",
         points: [
-          "Animate this product image with a subtle slow push-in, soft studio light sweep, and tiny spark particles around the edges, premium launch mood.",
-          "Turn this static campaign visual into a gentle reveal with parallax depth, moving background glow, and a clean cinematic camera drift.",
-          "Use this mockup as the main frame and add smooth motion that makes the interface feel alive without changing the core layout.",
+          "Act as a product operator. Turn this feature idea into a brief with user problem, scope, risks, launch tasks, and acceptance checks.",
+          "Act as a feedback analyst. Cluster these customer notes by theme, impact, frequency, and suggested next action.",
+          "Act as a release planner. Create a launch checklist for this feature with owner roles, dependencies, risks, and review gates.",
         ],
       },
     ],
     faqs: [
       {
-        question: "Can I copy these AI video prompt examples directly?",
+        question: "Can I copy these AI agent prompt examples directly?",
         answer:
-          "Yes. Treat them as starting points, then replace the subject, style, and format with your own project details.",
+          "Yes. Treat them as starting points, then replace the audience, context, output format, and checks with your task details.",
       },
       {
-        question: "Why do these prompts avoid complex stories?",
+        question: "Why do these examples include roles?",
         answer:
-          "Short generation tasks usually work better with one scene and one clear visual idea.",
+          "Roles help the agent use the right perspective and produce output that fits the task.",
       },
       {
-        question: "Should I include aspect ratio in prompt examples?",
+        question: "Should every prompt include acceptance checks?",
         answer:
-          "It helps to mention the intended format and also select the matching aspect ratio in the interface.",
+          "For multi-step work, yes. Acceptance checks make the result easier to review and improve.",
       },
     ],
-    relatedSlugs: ["ai-video-prompt-guide", "text-to-video-ai", "image-to-video-ai"],
+    relatedSlugs: ["ai-agent-prompt-guide", "ai-agent-for-marketing", "ai-agent-for-research"],
     cta: {
-      label: "Try an example prompt",
-      href: "/#generator",
+      label: "Try an agent prompt",
+      href: "/#agent-workspace",
     },
     priority: 0.75,
   },
@@ -595,6 +595,6 @@ export function getRelatedSeoPages(page: SeoPage) {
 
 export function getCoreSeoPages() {
   return seoPages.filter((page) =>
-    ["ai-video-generator", "text-to-video-ai", "image-to-video-ai", "ai-video-prompt-guide"].includes(page.slug),
+    ["ai-agent", "ai-agent-builder", "ai-agent-workflow", "ai-agent-prompt-guide"].includes(page.slug),
   )
 }

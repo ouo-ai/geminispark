@@ -4,17 +4,17 @@ import { motion, useReducedMotion } from "framer-motion"
 import { X, Check, ArrowRight } from "lucide-react"
 
 const problems = [
-  "Video ideas stuck as loose notes instead of usable prompts",
-  "Switching between tools just to test aspect ratio and duration",
-  "No clear task status after a generation starts",
-  "Reference images that are hard to translate into motion",
+  "Agent ideas stuck as loose notes instead of executable briefs",
+  "Unclear roles, constraints, and expected outputs",
+  "Multi-step work that starts without review checks",
+  "Repeated tasks that never become reusable workflows",
 ]
 
 const benefits = [
-  "A focused prompt workspace for short-form AI video",
-  "Text-to-video and image-to-video from the same panel",
-  "Live task tracking with progress and final video preview",
-  "Landscape and portrait formats for launch, ads, and socials",
+  "A focused workspace for AI agent task briefs",
+  "Research, marketing, product, and operations modes",
+  "Structured steps, outputs, and acceptance checks",
+  "Reusable planning patterns for recurring work",
 ]
 
 export function ProblemBenefit() {
@@ -33,7 +33,7 @@ export function ProblemBenefit() {
             Stop guessing. <span className="text-gradient-spark">Start building.</span>
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Gemini Spark gives video creators one place to prompt, submit, and track AI video generations.
+            Gemini Spark gives teams one place to turn rough goals into structured AI agent workflows.
           </p>
         </motion.div>
 

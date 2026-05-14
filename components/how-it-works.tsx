@@ -1,28 +1,28 @@
 "use client"
 
 import { motion, useReducedMotion } from "framer-motion"
-import { Film, Image, PlayCircle, Rocket } from "lucide-react"
+import { Bot, ClipboardList, ListChecks, Rocket } from "lucide-react"
 
 const steps = [
   {
-    icon: Film,
-    title: "Describe the scene",
-    description: "Write the subject, setting, motion, lighting, and camera feel you want Gemini Spark to generate.",
+    icon: Bot,
+    title: "Describe the goal",
+    description: "Write the objective, audience, context, and result you want the AI agent task to produce.",
   },
   {
-    icon: Image,
-    title: "Add a reference",
-    description: "Optionally paste a public image URL when you want the video to follow a visual direction.",
+    icon: ClipboardList,
+    title: "Choose the mode",
+    description: "Pick research, marketing, product, or operations so Gemini Spark can shape the right agent role.",
   },
   {
-    icon: PlayCircle,
-    title: "Submit the task",
-    description: "Choose landscape or portrait, pick a duration, and start the generation securely from the server.",
+    icon: ListChecks,
+    title: "Build the brief",
+    description: "Generate workflow steps, expected output, and acceptance checks before execution starts.",
   },
   {
     icon: Rocket,
-    title: "Preview the result",
-    description: "Track the task until it completes, then review the generated video directly on the page.",
+    title: "Run with clarity",
+    description: "Use the structured brief in your AI tool, review the checks, and hand off the result cleanly.",
   },
 ]
 
@@ -42,7 +42,7 @@ export function HowItWorks() {
             How <span className="text-gradient-spark">Gemini Spark</span> works
           </h2>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            From raw prompt to generated video in four simple steps
+            From raw goal to agent-ready workflow in four simple steps
           </p>
         </motion.div>
 

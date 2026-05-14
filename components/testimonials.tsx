@@ -5,19 +5,19 @@ import { CheckCircle2 } from "lucide-react"
 
 const examples = [
   {
-    title: "Product reveal",
-    input: "A tiny AI spark turns a notebook sketch into a polished SaaS dashboard.",
-    output: "A landscape video task ready for a launch page or demo teaser.",
+    title: "Launch research agent",
+    input: "Find the strongest audience segments for a new B2B feature launch.",
+    output: "A research brief with role, workflow steps, evidence checks, and next actions.",
   },
   {
-    title: "Social ad",
-    input: "A vertical cinematic clip showing fast before-and-after creative production.",
-    output: "A portrait generation task suitable for reels, shorts, and paid social tests.",
+    title: "Campaign planner",
+    input: "Turn product notes into a launch campaign outline for three channels.",
+    output: "A marketing agent brief with messaging steps, constraints, and review checks.",
   },
   {
-    title: "Explainer scene",
-    input: "A clean animated flow showing a prompt moving through model, task, and result.",
-    output: "A short video concept for help docs, onboarding, or product education.",
+    title: "Product ops brief",
+    input: "Convert customer feedback into a prioritized product operations workflow.",
+    output: "An agent-ready task plan with expected output, acceptance checks, and handoff notes.",
   },
 ]
 
@@ -34,10 +34,10 @@ export function Testimonials() {
           className="text-center mb-10 sm:mb-16"
         >
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-display mb-4">
-            Example <span className="text-gradient-spark">video tasks</span>
+            Example <span className="text-gradient-spark">agent briefs</span>
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground">
-            Concrete ways Gemini Spark turns a rough prompt into a generation job
+            Concrete ways Gemini Spark turns a rough objective into an agent-ready workflow
           </p>
         </motion.div>
 
