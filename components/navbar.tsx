@@ -253,7 +253,7 @@ export function Navbar() {
             >
               <div className="flex items-center justify-between px-6 py-4 bg-background border-b border-border/50">
                 <Link href="/" className="flex items-center gap-2" onClick={() => setMobileMenuOpen(false)}>
-                  <span className="relative h-6 w-6 overflow-hidden rounded-md border border-primary/25">
+                  <span className="relative inline-block h-6 w-6 overflow-hidden rounded-md border border-primary/25">
                     <Image src="/icon-192.png" alt="" fill sizes="24px" className="object-cover" />
                   </span>
                   <span

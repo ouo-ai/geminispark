@@ -21,7 +21,7 @@ export function Footer() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-8">
           <div className="col-span-2 sm:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-4">
-              <span className="relative h-5 w-5 overflow-hidden rounded border border-primary/25">
+              <span className="relative inline-block h-5 w-5 overflow-hidden rounded border border-primary/25">
                 <Image src="/icon-192.png" alt="" fill sizes="20px" className="object-cover" />
               </span>
               <span className="font-bold text-foreground" style={{ letterSpacing: 0 }}>
