@@ -211,13 +211,13 @@ export default async function SeoPageRoute({ params }: PageProps) {
             <div className="rounded-xl border border-primary/30 bg-primary/10 p-5">
               <p className="text-xs font-semibold uppercase text-primary">Create with Gemini Spark</p>
               <p className="mt-3 text-sm leading-6 text-foreground">
-                Open the agent workspace, describe a goal, choose a mode, and build a structured Gemini Spark brief.
+                Open Gemini Spark Chat, describe a goal, and turn the conversation into a structured agent brief.
               </p>
               <Link
-                href="/#agent-workspace"
+                href="/gemini-spark"
                 className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85"
               >
-                Go to workspace
+                Open chat
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>

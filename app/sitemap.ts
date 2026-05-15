@@ -13,6 +13,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 1,
     },
+    {
+      url: `${siteUrl}/gemini-spark`,
+      lastModified,
+      changeFrequency: "weekly",
+      priority: 0.9,
+    },
     ...seoPages.map((page) => ({
       url: `${siteUrl}/${page.slug}`,
       lastModified,

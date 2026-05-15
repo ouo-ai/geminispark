@@ -37,7 +37,7 @@ const navLinks = [
 ]
 
 const workflowItems = [
-  { href: "/#agent-workspace", label: "Agent Workspace", icon: Sparkles },
+  { href: "/gemini-spark", label: "Gemini Spark Chat", icon: Sparkles },
   { href: "/ai-agent-builder", label: "Agent Builder", icon: Bot },
   { href: "/ai-agent-workflow", label: "Agent Workflow", icon: ClipboardList },
   { href: "/ai-agent-for-product-teams", label: "Product Agents", icon: Rocket },
@@ -210,8 +210,8 @@ export function Navbar() {
               <Link href="/#how-it-works">How it works</Link>
             </Button>
             <Button size="sm" rounded="full" className="gap-1.5" asChild>
-              <Link href="/#agent-workspace">
-                Build Agent
+              <Link href="/gemini-spark">
+                Open Chat
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </Link>
             </Button>
@@ -354,8 +354,8 @@ export function Navbar() {
                   </Link>
                 </Button>
                 <Button rounded="full" className="py-6 text-base w-full" asChild>
-                  <Link href="/#agent-workspace" onClick={() => setMobileMenuOpen(false)}>
-                    Build Agent
+                  <Link href="/gemini-spark" onClick={() => setMobileMenuOpen(false)}>
+                    Open Chat
                   </Link>
                 </Button>
               </div>

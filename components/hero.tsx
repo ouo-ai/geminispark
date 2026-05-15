@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, Sparkles } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
@@ -142,10 +143,10 @@ export function Hero() {
               </div>
               <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <Button size="sm" rounded="lg" asChild>
-                  <a href="#agent-workspace">
+                  <Link href="/gemini-spark">
                     <Sparkles className="w-4 h-4 mr-1.5" />
-                    Build
-                  </a>
+                    Chat
+                  </Link>
                 </Button>
               </div>
             </div>
@@ -182,10 +183,10 @@ export function Hero() {
             className="flex flex-col sm:flex-row items-center justify-center gap-3"
           >
             <Button size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
-              <a href="#agent-workspace">
-                Build an Agent Brief
+              <Link href="/gemini-spark">
+                Open Gemini Spark Chat
                 <ArrowRight className="w-4 h-4" />
-              </a>
+              </Link>
             </Button>
             <Button variant="outline" size="xl" rounded="full" className="gap-2 bg-transparent w-full sm:w-auto" asChild>
               <a href="#how-it-works">

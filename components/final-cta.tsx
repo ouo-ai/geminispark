@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { motion, useReducedMotion } from "framer-motion"
 import { ArrowRight, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -36,10 +37,10 @@ export function FinalCTA() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button size="xl" rounded="full" className="gap-2 min-w-[200px]" asChild>
-                <a href="#agent-workspace">
-                  Build Agent Brief
+                <Link href="/gemini-spark">
+                  Open Chat
                   <ArrowRight className="w-4 h-4" />
-                </a>
+                </Link>
               </Button>
               <Button variant="outline" size="xl" rounded="full" className="gap-2 min-w-[200px] bg-transparent" asChild>
                 <a href="#how-it-works">

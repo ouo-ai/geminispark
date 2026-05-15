@@ -3,7 +3,7 @@ import Image from "next/image"
 
 const footerLinks = {
   Product: [
-    { label: "Agent Workspace", href: "/#agent-workspace" },
+    { label: "Gemini Spark Chat", href: "/gemini-spark" },
     { label: "Features", href: "/#features" },
     { label: "Use Cases", href: "/#use-cases" },
   ],
