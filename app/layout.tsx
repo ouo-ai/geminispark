@@ -168,6 +168,7 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        <script defer data-domain="geminispark.ai" src="https://plau.origai.net/js/script.js" />
       </head>
       <body className="font-sans antialiased min-h-screen">
         {children}
