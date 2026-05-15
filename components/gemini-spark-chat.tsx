@@ -1,6 +1,8 @@
 "use client"
 
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
   ArrowRight,
   Bot,
@@ -479,6 +481,72 @@ function sessionIcon(session: ChatSession) {
   return MessageSquare
 }
 
+function MarkdownMessage({ content, isUser }: { content: string; isUser: boolean }) {
+  return (
+    <div className={cn("min-w-0 overflow-x-auto", isUser ? "text-primary-foreground" : "text-foreground/90")}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          h1: ({ children }) => <h1 className="mb-3 text-xl font-semibold leading-7 text-foreground">{children}</h1>,
+          h2: ({ children }) => <h2 className="mb-3 text-lg font-semibold leading-7 text-foreground">{children}</h2>,
+          h3: ({ children }) => <h3 className="mb-2 text-base font-semibold leading-6 text-foreground">{children}</h3>,
+          h4: ({ children }) => <h4 className="mb-2 text-sm font-semibold leading-6 text-foreground">{children}</h4>,
+          ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
+          ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>,
+          li: ({ children }) => <li className="pl-1 leading-6">{children}</li>,
+          strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+          em: ({ children }) => <em className="text-foreground/80">{children}</em>,
+          blockquote: ({ children }) => (
+            <blockquote className="my-3 border-l-2 border-primary/45 pl-4 text-muted-foreground">{children}</blockquote>
+          ),
+          hr: () => <hr className="my-4 border-border" />,
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className={cn("underline underline-offset-4", isUser ? "text-primary-foreground" : "text-primary")}
+            >
+              {children}
+            </a>
+          ),
+          code: ({ children, className }) => {
+            const isBlock = className?.includes("language-")
+
+            if (isBlock) {
+              return (
+                <code className={cn("block overflow-x-auto rounded-lg bg-background/80 p-3 text-xs leading-6", className)}>
+                  {children}
+                </code>
+              )
+            }
+
+            return (
+              <code className="rounded border border-border bg-background/70 px-1.5 py-0.5 text-[0.85em] text-foreground">
+                {children}
+              </code>
+            )
+          },
+          pre: ({ children }) => <pre className="my-3 overflow-x-auto rounded-lg p-0">{children}</pre>,
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto rounded-lg border border-border">
+              <table className="min-w-full border-collapse text-left text-xs">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-primary/10 text-foreground">{children}</thead>,
+          tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
+          tr: ({ children }) => <tr className="border-border">{children}</tr>,
+          th: ({ children }) => <th className="whitespace-nowrap border-r border-border px-3 py-2 font-semibold last:border-r-0">{children}</th>,
+          td: ({ children }) => <td className="border-r border-border px-3 py-2 align-top text-muted-foreground last:border-r-0">{children}</td>,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 export function GeminiSparkChat() {
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
@@ -869,7 +937,11 @@ export function GeminiSparkChat() {
                             : "border-border bg-background/65 text-muted-foreground",
                       )}
                     >
-                      {message.status === "thinking" ? thinkingLines[thinkingIndex] : message.body}
+                      {message.status === "thinking" ? (
+                        thinkingLines[thinkingIndex]
+                      ) : (
+                        <MarkdownMessage content={message.body} isUser={isUser} />
+                      )}
                       {message.attachments && message.attachments.length > 0 && (
                         <div className="mt-3 grid gap-2">
                           {message.attachments.map((attachment) => (
