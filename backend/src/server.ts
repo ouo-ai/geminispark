@@ -1,0 +1,191 @@
+import cors from "@fastify/cors"
+import Fastify from "fastify"
+import { z } from "zod"
+
+import { config } from "./config.js"
+import { disconnectPrisma } from "./db.js"
+import { registerMcpRoutes } from "./mcp.js"
+import { closeTaskQueue } from "./queue.js"
+import { cancelTask, createTask, getTask, isTerminalStatus, serializeTask } from "./tasks.js"
+
+const createTaskBodySchema = z.object({
+  message: z.string().min(1),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.string(),
+        dataUrl: z.string().optional(),
+        url: z.string().optional(),
+      }),
+    )
+    .optional(),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(["assistant", "user"]),
+        body: z.string(),
+      }),
+    )
+    .optional(),
+  sessionId: z.string().optional(),
+  clientTaskId: z.string().optional(),
+  externalUserId: z.string().optional(),
+})
+
+function isAllowedOrigin(origin: string | undefined) {
+  if (!origin) {
+    return true
+  }
+
+  return config.allowedOrigins.includes("*") || config.allowedOrigins.includes(origin)
+}
+
+export function buildServer() {
+  const app = Fastify({
+    logger: true,
+    bodyLimit: 40 * 1024 * 1024,
+  })
+
+  app.register(cors, {
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true)
+        return
+      }
+
+      callback(new Error("Origin not allowed."), false)
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+  })
+
+  app.get("/health", async () => ({
+    ok: true,
+    service: "geminispark-api",
+    time: new Date().toISOString(),
+  }))
+
+  app.post("/tasks", async (request, reply) => {
+    const parsed = createTaskBodySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: "Invalid task payload.",
+        details: parsed.error.flatten(),
+      })
+    }
+
+    const task = await createTask(parsed.data)
+    if (!task) {
+      return reply.code(500).send({ error: "Task was created but could not be loaded." })
+    }
+
+    return reply.code(202).send(serializeTask(task))
+  })
+
+  app.get<{ Params: { taskId: string } }>("/tasks/:taskId", async (request, reply) => {
+    const task = await getTask(request.params.taskId)
+    if (!task) {
+      return reply.code(404).send({ error: "Task not found." })
+    }
+
+    return serializeTask(task)
+  })
+
+  app.post<{ Params: { taskId: string } }>("/tasks/:taskId/cancel", async (request, reply) => {
+    const task = await cancelTask(request.params.taskId)
+    if (!task) {
+      return reply.code(404).send({ error: "Task not found." })
+    }
+
+    return serializeTask(task)
+  })
+
+  app.get<{ Params: { taskId: string } }>("/tasks/:taskId/events", async (request, reply) => {
+    const initialTask = await getTask(request.params.taskId)
+    if (!initialTask) {
+      return reply.code(404).send({ error: "Task not found." })
+    }
+
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    })
+
+    let closed = false
+    request.raw.on("close", () => {
+      closed = true
+    })
+
+    const send = (event: string, data: unknown) => {
+      if (closed) {
+        return
+      }
+
+      reply.raw.write(`event: ${event}\n`)
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+
+    send("task", serializeTask(initialTask))
+
+    const interval = setInterval(async () => {
+      if (closed) {
+        clearInterval(interval)
+        return
+      }
+
+      try {
+        const task = await getTask(request.params.taskId)
+        if (!task) {
+          send("error", { error: "Task not found." })
+          clearInterval(interval)
+          reply.raw.end()
+          return
+        }
+
+        const serialized = serializeTask(task)
+        send("task", serialized)
+
+        if (isTerminalStatus(task.status)) {
+          clearInterval(interval)
+          reply.raw.end()
+        }
+      } catch (error) {
+        app.log.error({ error }, "Failed to stream task event")
+        send("error", { error: "Failed to stream task event." })
+      }
+    }, 2_000)
+  })
+
+  registerMcpRoutes(app)
+
+  return app
+}
+
+async function main() {
+  const app = buildServer()
+
+  const shutdown = async () => {
+    app.log.info("Shutting down Gemini Spark API")
+    await app.close()
+    await closeTaskQueue()
+    await disconnectPrisma()
+  }
+
+  process.once("SIGINT", () => void shutdown().then(() => process.exit(0)))
+  process.once("SIGTERM", () => void shutdown().then(() => process.exit(0)))
+
+  await app.listen({
+    host: "0.0.0.0",
+    port: config.port,
+  })
+}
+
+if (require.main === module) {
+  void main().catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+}

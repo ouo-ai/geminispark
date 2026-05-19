@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TaskStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum TaskIntent {
+  TEXT
+  IMAGE
+  TEXT_TO_VIDEO
+  IMAGE_TO_VIDEO
+}
+
+enum ArtifactKind {
+  TEXT
+  IMAGE
+  VIDEO
+  OTHER
+}
+
+model Task {
+  id             String       @id @default(cuid())
+  clientTaskId   String?
+  externalUserId String?
+  sessionId      String?
+  message        String
+  intent         TaskIntent
+  status         TaskStatus   @default(QUEUED)
+  progress       Int          @default(0)
+  provider       String?
+  model          String?
+  input          Json
+  result         Json?
+  error          String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  events         TaskEvent[]
+  artifacts      Artifact[]
+
+  @@index([status, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([clientTaskId])
+}
+
+model TaskEvent {
+  id        String   @id @default(cuid())
+  taskId    String
+  type      String
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+model Artifact {
+  id        String       @id @default(cuid())
+  taskId    String
+  kind      ArtifactKind
+  url       String?
+  text      String?
+  metadata  Json?
+  createdAt DateTime     @default(now())
+  task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}

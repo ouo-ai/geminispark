@@ -68,13 +68,44 @@ type AgentResponse = {
   media?: AgentMedia
 }
 
+type AgentTaskStatus = "queued" | "running" | "succeeded" | "failed" | "canceled"
+
+type AgentTaskEvent = {
+  id: string
+  type: string
+  message: string
+  createdAt: string
+}
+
+type AgentTaskArtifact = {
+  id: string
+  kind: "text" | "image" | "video" | "other"
+  url?: string | null
+  text?: string | null
+  createdAt: string
+}
+
+type AgentTask = {
+  id: string
+  intent: string
+  status: AgentTaskStatus
+  progress: number
+  provider?: string | null
+  model?: string | null
+  message?: string | null
+  error?: string | null
+  media?: AgentMedia
+  artifacts?: AgentTaskArtifact[]
+  events?: AgentTaskEvent[]
+}
+
 const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024
 const MAX_PERSISTED_ATTACHMENT_BYTES = 400_000
 const MAX_PERSISTED_SESSIONS = 30
 const MAX_PERSISTED_MESSAGES = 120
-const PRETHINK_MS = 30_000
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY = "gemini-spark:chat-sessions:v1"
+const AGENT_API_BASE_URL = (process.env.NEXT_PUBLIC_AGENT_API_URL || "").replace(/\/$/, "")
 const WELCOME_MESSAGE =
   "Send text, attach an image, or ask for a video. I will think first, choose the best Gemini Spark route, then run the request from the server."
 
@@ -113,6 +144,108 @@ const thinkingLines = [
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function agentApiUrl(path: string) {
+  if (!AGENT_API_BASE_URL) {
+    throw new Error("NEXT_PUBLIC_AGENT_API_URL is not configured.")
+  }
+
+  return `${AGENT_API_BASE_URL}${path}`
+}
+
+function latestTaskEvent(task: AgentTask) {
+  return task.events?.[task.events.length - 1]
+}
+
+function taskToAgentResponse(task: AgentTask): AgentResponse {
+  const textArtifact = task.artifacts?.find((artifact) => artifact.kind === "text" && artifact.text)
+  const message =
+    task.message ||
+    textArtifact?.text ||
+    task.error ||
+    latestTaskEvent(task)?.message ||
+    "Gemini Spark task finished without a message."
+
+  return {
+    intent: task.intent,
+    provider: task.provider || AGENT_BRAND,
+    model: task.model || AGENT_BRAND,
+    message,
+    taskId: task.id,
+    media: task.media,
+  }
+}
+
+async function fetchTask(taskId: string) {
+  const response = await fetch(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}`), {
+    headers: {
+      Accept: "application/json",
+    },
+  })
+  const data = (await response.json()) as AgentTask | { error?: string }
+
+  if (!response.ok) {
+    throw new Error(("error" in data && data.error) || "Task request failed.")
+  }
+
+  return data as AgentTask
+}
+
+function isTerminalTask(task: AgentTask) {
+  return task.status === "succeeded" || task.status === "failed" || task.status === "canceled"
+}
+
+async function pollTaskUntilDone(taskId: string, onUpdate: (task: AgentTask) => void) {
+  for (;;) {
+    const task = await fetchTask(taskId)
+    onUpdate(task)
+
+    if (isTerminalTask(task)) {
+      return task
+    }
+
+    await wait(2_000)
+  }
+}
+
+async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask) => void) {
+  if (typeof EventSource === "undefined") {
+    return pollTaskUntilDone(taskId, onUpdate)
+  }
+
+  return new Promise<AgentTask>((resolve, reject) => {
+    let settled = false
+    const source = new EventSource(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}/events`))
+
+    function settle(callback: () => void) {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      source.close()
+      callback()
+    }
+
+    source.addEventListener("task", (event) => {
+      try {
+        const task = JSON.parse((event as MessageEvent).data) as AgentTask
+        onUpdate(task)
+
+        if (isTerminalTask(task)) {
+          settle(() => resolve(task))
+        }
+      } catch (error) {
+        settle(() => reject(error))
+      }
+    })
+
+    source.addEventListener("error", () => {
+      source.close()
+      pollTaskUntilDone(taskId, onUpdate).then(resolve, reject)
+    })
+  })
 }
 
 function createId(prefix: string) {
@@ -718,16 +851,17 @@ export function GeminiSparkChat() {
     setIsThinking(true)
 
     try {
-      await wait(PRETHINK_MS)
-
-      const response = await fetch("/api/gemini-spark/agent", {
+      const response = await fetch(agentApiUrl("/tasks"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({
           message: cleanDraft,
           attachments: submittedAttachments.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
+          sessionId,
+          clientTaskId: thinkingMessage.id,
           history: messages
             .filter((message) => message.status !== "thinking")
             .slice(-8)
@@ -735,7 +869,7 @@ export function GeminiSparkChat() {
         }),
       })
 
-      const data = (await response.json()) as AgentResponse | { error?: string }
+      const data = (await response.json()) as AgentTask | { error?: string }
 
       if (!response.ok) {
         throw new Error(("error" in data && data.error) || "Agent request failed.")
@@ -745,36 +879,53 @@ export function GeminiSparkChat() {
         throw new Error(data.error)
       }
 
-      const agentData = data as AgentResponse
+      const submittedTask = data as AgentTask
+      const updateFromTask = (task: AgentTask) => {
+        const latestEvent = latestTaskEvent(task)
+        const pendingMessage =
+          task.message ||
+          latestEvent?.message ||
+          (task.status === "queued" ? "Task queued." : "Gemini Spark is processing this task.")
+        const agentData = taskToAgentResponse(task)
+        const isDone = task.status === "succeeded"
+        const isError = task.status === "failed" || task.status === "canceled"
 
-      setChatState((current) => {
-        const nextSessions = current.sessions.map((session) =>
-          session.id === sessionId
-            ? {
-                ...session,
-                updatedAt: Date.now(),
-                messages: session.messages.map((message) =>
-                  message.id === thinkingMessage.id
-                    ? {
-                        ...message,
-                        body: agentData.message,
-                        status: "done" as const,
-                        provider: agentData.provider,
-                        model: agentData.model,
-                        intent: agentData.intent,
-                        media: agentData.media,
-                      }
-                    : message,
-                ),
-              }
-            : session,
-        )
+        setChatState((current) => {
+          const nextSessions = current.sessions.map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  updatedAt: Date.now(),
+                  messages: session.messages.map((message) =>
+                    message.id === thinkingMessage.id
+                      ? {
+                          ...message,
+                          body: isDone || isError ? agentData.message : pendingMessage,
+                          status: isDone ? ("done" as const) : isError ? ("error" as const) : ("thinking" as const),
+                          provider: isDone ? agentData.provider : undefined,
+                          model: isDone ? agentData.model : undefined,
+                          intent: agentData.intent,
+                          media: isDone ? agentData.media : undefined,
+                        }
+                      : message,
+                  ),
+                }
+              : session,
+          )
 
-        return {
-          ...current,
-          sessions: sortSessionsByActivity(nextSessions),
-        }
-      })
+          return {
+            ...current,
+            sessions: sortSessionsByActivity(nextSessions),
+          }
+        })
+      }
+
+      updateFromTask(submittedTask)
+      const completedTask = await waitForTaskCompletion(submittedTask.id, updateFromTask)
+
+      if (completedTask.status !== "succeeded") {
+        throw new Error(completedTask.error || completedTask.message || "Gemini Spark task did not complete.")
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent request failed."
 
@@ -938,7 +1089,7 @@ export function GeminiSparkChat() {
                       )}
                     >
                       {message.status === "thinking" ? (
-                        thinkingLines[thinkingIndex]
+                        <MarkdownMessage content={message.body || thinkingLines[thinkingIndex]} isUser={isUser} />
                       ) : (
                         <MarkdownMessage content={message.body} isUser={isUser} />
                       )}

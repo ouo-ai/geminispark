@@ -1,0 +1,77 @@
+services:
+  - type: keyvalue
+    name: geminispark-redis
+    region: oregon
+    plan: standard
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  - type: web
+    name: geminispark-api
+    runtime: node
+    repo: https://github.com/ouo-ai/geminispark
+    branch: main
+    region: oregon
+    plan: standard
+    buildCommand: pnpm install --frozen-lockfile && pnpm prisma:generate && pnpm backend:build
+    preDeployCommand: pnpm prisma:migrate:deploy
+    startCommand: pnpm backend:start
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.1
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGINS
+        value: https://geminispark.ai,https://www.geminispark.ai,http://localhost:3000
+      - key: REDIS_URL
+        fromService:
+          name: geminispark-redis
+          type: keyvalue
+          property: connectionString
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: APIMART_API_KEY
+        sync: false
+      - key: EGGAPI_API_KEY
+        sync: false
+      - key: MCP_AUTH_TOKEN
+        sync: false
+
+  - type: worker
+    name: geminispark-worker
+    runtime: node
+    repo: https://github.com/ouo-ai/geminispark
+    branch: main
+    region: oregon
+    plan: standard
+    buildCommand: pnpm install --frozen-lockfile && pnpm prisma:generate && pnpm backend:build
+    startCommand: pnpm backend:worker
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.1
+      - key: NODE_ENV
+        value: production
+      - key: WORKER_CONCURRENCY
+        value: "5"
+      - key: REDIS_URL
+        fromService:
+          name: geminispark-redis
+          type: keyvalue
+          property: connectionString
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: APIMART_API_KEY
+        sync: false
+      - key: EGGAPI_API_KEY
+        sync: false
