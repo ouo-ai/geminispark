@@ -110,6 +110,24 @@ export async function getTask(taskId: string) {
   })
 }
 
+export async function getTaskForOwner(taskId: string, externalUserId: string) {
+  return prisma.task.findFirst({
+    where: {
+      id: taskId,
+      externalUserId,
+    },
+    include: {
+      artifacts: {
+        orderBy: { createdAt: "asc" },
+      },
+      events: {
+        orderBy: { createdAt: "asc" },
+        take: 100,
+      },
+    },
+  })
+}
+
 export async function appendTaskEvent(taskId: string, type: string, message: string, data?: unknown) {
   return prisma.taskEvent.create({
     data: {
@@ -180,14 +198,22 @@ export async function createTask(params: CreateTaskParams) {
   return getTask(task.id)
 }
 
-export async function cancelTask(taskId: string) {
-  const task = await prisma.task.findUnique({ where: { id: taskId } })
+export async function cancelTask(taskId: string, externalUserId?: string) {
+  const task = externalUserId
+    ? await prisma.task.findFirst({
+        where: {
+          id: taskId,
+          externalUserId,
+        },
+      })
+    : await prisma.task.findUnique({ where: { id: taskId } })
+
   if (!task) {
     return null
   }
 
   if (TERMINAL_STATUSES.has(task.status)) {
-    return getTask(taskId)
+    return externalUserId ? getTaskForOwner(taskId, externalUserId) : getTask(taskId)
   }
 
   const job = await getTaskQueue().getJob(taskId)
@@ -203,7 +229,7 @@ export async function cancelTask(taskId: string) {
   })
   await appendTaskEvent(taskId, "canceled", "Task canceled.")
 
-  return getTask(taskId)
+  return externalUserId ? getTaskForOwner(taskId, externalUserId) : getTask(taskId)
 }
 
 async function storeProviderResult(taskId: string, result: ProviderResult) {

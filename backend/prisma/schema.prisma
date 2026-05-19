@@ -52,6 +52,7 @@ model Task {
   artifacts      Artifact[]
 
   @@index([status, createdAt])
+  @@index([externalUserId, createdAt])
   @@index([sessionId, createdAt])
   @@index([clientTaskId])
 }

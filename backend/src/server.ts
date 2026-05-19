@@ -6,7 +6,9 @@ import { config } from "./config.js"
 import { disconnectPrisma } from "./db.js"
 import { registerMcpRoutes } from "./mcp.js"
 import { closeTaskQueue } from "./queue.js"
-import { cancelTask, createTask, getTask, isTerminalStatus, serializeTask } from "./tasks.js"
+import { cancelTask, createTask, getTaskForOwner, isTerminalStatus, serializeTask } from "./tasks.js"
+
+const OWNER_HEADER = "x-geminispark-client-id"
 
 const createTaskBodySchema = z.object({
   message: z.string().min(1),
@@ -41,6 +43,38 @@ function isAllowedOrigin(origin: string | undefined) {
   return config.allowedOrigins.includes("*") || config.allowedOrigins.includes(origin)
 }
 
+function firstHeader(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function normalizeOwnerId(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > 200) {
+    return undefined
+  }
+
+  return trimmed
+}
+
+function ownerFromRequest(request: { headers: Record<string, string | string[] | undefined>; query?: unknown }, fallback?: string) {
+  const query = request.query && typeof request.query === "object" ? (request.query as Record<string, unknown>) : {}
+
+  return (
+    normalizeOwnerId(firstHeader(request.headers[OWNER_HEADER])) ||
+    normalizeOwnerId(query.clientId) ||
+    normalizeOwnerId(query.ownerId) ||
+    normalizeOwnerId(fallback)
+  )
+}
+
+function sendOwnerIdRequired(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }) {
+  return reply.code(401).send({ error: "Client owner id is required." })
+}
+
 export function buildServer() {
   const app = Fastify({
     logger: true,
@@ -57,6 +91,7 @@ export function buildServer() {
       callback(new Error("Origin not allowed."), false)
     },
     methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Accept", "Content-Type", OWNER_HEADER],
   })
 
   app.get("/health", async () => ({
@@ -74,7 +109,15 @@ export function buildServer() {
       })
     }
 
-    const task = await createTask(parsed.data)
+    const ownerId = ownerFromRequest(request, parsed.data.externalUserId)
+    if (!ownerId) {
+      return sendOwnerIdRequired(reply)
+    }
+
+    const task = await createTask({
+      ...parsed.data,
+      externalUserId: ownerId,
+    })
     if (!task) {
       return reply.code(500).send({ error: "Task was created but could not be loaded." })
     }
@@ -82,82 +125,106 @@ export function buildServer() {
     return reply.code(202).send(serializeTask(task))
   })
 
-  app.get<{ Params: { taskId: string } }>("/tasks/:taskId", async (request, reply) => {
-    const task = await getTask(request.params.taskId)
-    if (!task) {
-      return reply.code(404).send({ error: "Task not found." })
-    }
-
-    return serializeTask(task)
-  })
-
-  app.post<{ Params: { taskId: string } }>("/tasks/:taskId/cancel", async (request, reply) => {
-    const task = await cancelTask(request.params.taskId)
-    if (!task) {
-      return reply.code(404).send({ error: "Task not found." })
-    }
-
-    return serializeTask(task)
-  })
-
-  app.get<{ Params: { taskId: string } }>("/tasks/:taskId/events", async (request, reply) => {
-    const initialTask = await getTask(request.params.taskId)
-    if (!initialTask) {
-      return reply.code(404).send({ error: "Task not found." })
-    }
-
-    reply.hijack()
-    reply.raw.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no",
-    })
-
-    let closed = false
-    request.raw.on("close", () => {
-      closed = true
-    })
-
-    const send = (event: string, data: unknown) => {
-      if (closed) {
-        return
+  app.get<{ Params: { taskId: string }; Querystring: { clientId?: string; ownerId?: string } }>(
+    "/tasks/:taskId",
+    async (request, reply) => {
+      const ownerId = ownerFromRequest(request)
+      if (!ownerId) {
+        return sendOwnerIdRequired(reply)
       }
 
-      reply.raw.write(`event: ${event}\n`)
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
-    }
-
-    send("task", serializeTask(initialTask))
-
-    const interval = setInterval(async () => {
-      if (closed) {
-        clearInterval(interval)
-        return
+      const task = await getTaskForOwner(request.params.taskId, ownerId)
+      if (!task) {
+        return reply.code(404).send({ error: "Task not found." })
       }
 
-      try {
-        const task = await getTask(request.params.taskId)
-        if (!task) {
-          send("error", { error: "Task not found." })
-          clearInterval(interval)
-          reply.raw.end()
+      return serializeTask(task)
+    },
+  )
+
+  app.post<{ Params: { taskId: string }; Querystring: { clientId?: string; ownerId?: string } }>(
+    "/tasks/:taskId/cancel",
+    async (request, reply) => {
+      const ownerId = ownerFromRequest(request)
+      if (!ownerId) {
+        return sendOwnerIdRequired(reply)
+      }
+
+      const task = await cancelTask(request.params.taskId, ownerId)
+      if (!task) {
+        return reply.code(404).send({ error: "Task not found." })
+      }
+
+      return serializeTask(task)
+    },
+  )
+
+  app.get<{ Params: { taskId: string }; Querystring: { clientId?: string; ownerId?: string } }>(
+    "/tasks/:taskId/events",
+    async (request, reply) => {
+      const ownerId = ownerFromRequest(request)
+      if (!ownerId) {
+        return sendOwnerIdRequired(reply)
+      }
+
+      const initialTask = await getTaskForOwner(request.params.taskId, ownerId)
+      if (!initialTask) {
+        return reply.code(404).send({ error: "Task not found." })
+      }
+
+      reply.hijack()
+      reply.raw.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+      })
+
+      let closed = false
+      request.raw.on("close", () => {
+        closed = true
+      })
+
+      const send = (event: string, data: unknown) => {
+        if (closed) {
           return
         }
 
-        const serialized = serializeTask(task)
-        send("task", serialized)
-
-        if (isTerminalStatus(task.status)) {
-          clearInterval(interval)
-          reply.raw.end()
-        }
-      } catch (error) {
-        app.log.error({ error }, "Failed to stream task event")
-        send("error", { error: "Failed to stream task event." })
+        reply.raw.write(`event: ${event}\n`)
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`)
       }
-    }, 2_000)
-  })
+
+      send("task", serializeTask(initialTask))
+
+      const interval = setInterval(async () => {
+        if (closed) {
+          clearInterval(interval)
+          return
+        }
+
+        try {
+          const task = await getTaskForOwner(request.params.taskId, ownerId)
+          if (!task) {
+            send("error", { error: "Task not found." })
+            clearInterval(interval)
+            reply.raw.end()
+            return
+          }
+
+          const serialized = serializeTask(task)
+          send("task", serialized)
+
+          if (isTerminalStatus(task.status)) {
+            clearInterval(interval)
+            reply.raw.end()
+          }
+        } catch (error) {
+          app.log.error({ error }, "Failed to stream task event")
+          send("error", { error: "Failed to stream task event." })
+        }
+      }, 2_000)
+    },
+  )
 
   registerMcpRoutes(app)
 

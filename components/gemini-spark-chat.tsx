@@ -105,6 +105,8 @@ const MAX_PERSISTED_SESSIONS = 30
 const MAX_PERSISTED_MESSAGES = 120
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY = "gemini-spark:chat-sessions:v1"
+const CLIENT_ID_STORAGE_KEY = "gemini-spark:client-id:v1"
+const CLIENT_OWNER_HEADER = "x-geminispark-client-id"
 const AGENT_API_BASE_URL = (process.env.NEXT_PUBLIC_AGENT_API_URL || "").replace(/\/$/, "")
 const WELCOME_MESSAGE =
   "Send text, attach an image, or ask for a video. I will think first, choose the best Gemini Spark route, then run the request from the server."
@@ -154,6 +156,33 @@ function agentApiUrl(path: string) {
   return `${AGENT_API_BASE_URL}${path}`
 }
 
+function createClientOwnerId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `browser-${crypto.randomUUID()}`
+  }
+
+  return `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function getClientOwnerId() {
+  if (typeof window === "undefined") {
+    return createClientOwnerId()
+  }
+
+  try {
+    const existing = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY)?.trim()
+    if (existing) {
+      return existing
+    }
+
+    const next = createClientOwnerId()
+    window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, next)
+    return next
+  } catch {
+    return createClientOwnerId()
+  }
+}
+
 function latestTaskEvent(task: AgentTask) {
   return task.events?.[task.events.length - 1]
 }
@@ -177,10 +206,11 @@ function taskToAgentResponse(task: AgentTask): AgentResponse {
   }
 }
 
-async function fetchTask(taskId: string) {
+async function fetchTask(taskId: string, ownerId: string) {
   const response = await fetch(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}`), {
     headers: {
       Accept: "application/json",
+      [CLIENT_OWNER_HEADER]: ownerId,
     },
   })
   const data = (await response.json()) as AgentTask | { error?: string }
@@ -196,9 +226,9 @@ function isTerminalTask(task: AgentTask) {
   return task.status === "succeeded" || task.status === "failed" || task.status === "canceled"
 }
 
-async function pollTaskUntilDone(taskId: string, onUpdate: (task: AgentTask) => void) {
+async function pollTaskUntilDone(taskId: string, ownerId: string, onUpdate: (task: AgentTask) => void) {
   for (;;) {
-    const task = await fetchTask(taskId)
+    const task = await fetchTask(taskId, ownerId)
     onUpdate(task)
 
     if (isTerminalTask(task)) {
@@ -209,14 +239,16 @@ async function pollTaskUntilDone(taskId: string, onUpdate: (task: AgentTask) => 
   }
 }
 
-async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask) => void) {
+async function waitForTaskCompletion(taskId: string, ownerId: string, onUpdate: (task: AgentTask) => void) {
   if (typeof EventSource === "undefined") {
-    return pollTaskUntilDone(taskId, onUpdate)
+    return pollTaskUntilDone(taskId, ownerId, onUpdate)
   }
 
   return new Promise<AgentTask>((resolve, reject) => {
     let settled = false
-    const source = new EventSource(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}/events`))
+    const source = new EventSource(
+      agentApiUrl(`/tasks/${encodeURIComponent(taskId)}/events?clientId=${encodeURIComponent(ownerId)}`),
+    )
 
     function settle(callback: () => void) {
       if (settled) {
@@ -243,7 +275,7 @@ async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask)
 
     source.addEventListener("error", () => {
       source.close()
-      pollTaskUntilDone(taskId, onUpdate).then(resolve, reject)
+      pollTaskUntilDone(taskId, ownerId, onUpdate).then(resolve, reject)
     })
   })
 }
@@ -851,17 +883,20 @@ export function GeminiSparkChat() {
     setIsThinking(true)
 
     try {
+      const ownerId = getClientOwnerId()
       const response = await fetch(agentApiUrl("/tasks"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          [CLIENT_OWNER_HEADER]: ownerId,
         },
         body: JSON.stringify({
           message: cleanDraft,
           attachments: submittedAttachments.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
           sessionId,
           clientTaskId: thinkingMessage.id,
+          externalUserId: ownerId,
           history: messages
             .filter((message) => message.status !== "thinking")
             .slice(-8)
@@ -921,7 +956,7 @@ export function GeminiSparkChat() {
       }
 
       updateFromTask(submittedTask)
-      const completedTask = await waitForTaskCompletion(submittedTask.id, updateFromTask)
+      const completedTask = await waitForTaskCompletion(submittedTask.id, ownerId, updateFromTask)
 
       if (completedTask.status !== "succeeded") {
         throw new Error(completedTask.error || completedTask.message || "Gemini Spark task did not complete.")

@@ -28,4 +28,8 @@ This backend runs the long-lived Gemini Spark task layer outside Vercel.
 - `POST /tasks/:taskId/cancel`
 - `POST /mcp`
 
+Task create/read/cancel endpoints require a stable per-client owner id through
+the `x-geminispark-client-id` header. Browser SSE cannot attach custom headers,
+so `GET /tasks/:taskId/events` also accepts the same value as `?clientId=...`.
+
 The frontend expects `NEXT_PUBLIC_AGENT_API_URL` to point at the Render API URL.

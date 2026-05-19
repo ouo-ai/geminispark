@@ -21,6 +21,7 @@ type AgentRequest = {
 }
 
 const PUBLIC_AGENT_NAME = "Gemini Spark"
+const CLIENT_OWNER_HEADER = "x-geminispark-client-id"
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status })
@@ -41,15 +42,22 @@ export async function POST(request: Request) {
       return jsonError("Gemini Spark task API is not configured.", 500)
     }
 
+    const ownerId = request.headers.get(CLIENT_OWNER_HEADER)?.trim() || payload.externalUserId?.trim()
+    if (!ownerId) {
+      return jsonError("Client owner id is required.", 401)
+    }
+
     const response = await fetch(`${agentApiUrl}/tasks`, {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
+        [CLIENT_OWNER_HEADER]: ownerId,
       },
       body: JSON.stringify({
         ...payload,
         message,
+        externalUserId: ownerId,
       }),
     })
     const body = await response.json()
