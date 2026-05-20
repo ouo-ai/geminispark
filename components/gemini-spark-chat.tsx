@@ -60,7 +60,15 @@ import {
 import { Kbd } from "@/components/ui/kbd"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { BILLING_PLANS, CREDIT_COSTS, CREDIT_PACKS, type BillingInterval, type CreditPack, type PaidPlan } from "@/lib/billing-config"
+import {
+  BILLING_PLANS,
+  canPurchaseCreditPack,
+  CREDIT_COSTS,
+  CREDIT_PACKS,
+  type BillingInterval,
+  type CreditPack,
+  type PaidPlan,
+} from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
@@ -1450,6 +1458,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const latestMediaKey = latestVisibleMessage?.media?.urls.join("|") ?? ""
   const isSignedIn = Boolean(session?.user)
   const isAuthPending = isSessionPending || isSigningIn
+  const canBuyCreditPacks = account ? canPurchaseCreditPack(account.credits) : false
   const workspaceState =
     isSignedIn && !isActiveProjectBootstrapped
       ? ("initializing" as const)
@@ -1556,6 +1565,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
   async function startCreditPackCheckout(pack: CreditPack) {
     setBillingError("")
+
+    if (!account || !canPurchaseCreditPack(account.credits)) {
+      setBillingError("Subscribe to a paid plan before buying credit packs.")
+      return
+    }
+
     setCheckoutPack(pack)
 
     try {
@@ -3389,7 +3404,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-base font-semibold text-foreground">Credit packs</p>
-                  <p className="mt-1 text-sm text-muted-foreground">One-time reserves for bigger launches and media batches.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Available after an active paid plan for bigger launches and media batches.</p>
                 </div>
                 <Button type="button" variant="ghost" rounded="lg" className="h-9 w-fit px-3 text-sm" asChild>
                   <Link href="/pricing">View pricing</Link>
@@ -3436,10 +3451,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                         rounded="lg"
                         className="mt-auto w-full gap-2 bg-transparent"
                         onClick={() => void startCreditPackCheckout(pack)}
-                        disabled={checkoutPlan !== null || checkoutPack !== null}
+                        disabled={checkoutPlan !== null || checkoutPack !== null || !canBuyCreditPacks}
                       >
                         {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
-                        {isPending ? "Opening checkout" : "Buy pack"}
+                        {isPending ? "Opening checkout" : canBuyCreditPacks ? "Buy pack" : "Requires plan"}
                       </Button>
                     </article>
                   )

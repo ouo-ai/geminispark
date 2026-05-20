@@ -18,7 +18,15 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { BILLING_PLANS, CREDIT_COSTS, CREDIT_PACKS, type BillingInterval, type CreditPack, type PaidPlan } from "@/lib/billing-config"
+import {
+  BILLING_PLANS,
+  canPurchaseCreditPack,
+  CREDIT_COSTS,
+  CREDIT_PACKS,
+  type BillingInterval,
+  type CreditPack,
+  type PaidPlan,
+} from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
@@ -35,6 +43,11 @@ const usageCosts = [
   { label: "Image", cost: CREDIT_COSTS.image, icon: ImageIcon },
   { label: "Video", cost: CREDIT_COSTS["text-to-video"], icon: Video },
 ]
+
+type BillingCreditStatus = {
+  plan: string
+  subscriptionStatus: string
+}
 
 function formatMoney(value: number) {
   return moneyFormatter.format(value)
@@ -69,8 +82,12 @@ export function PricingPage() {
   const [pendingCheckout, setPendingCheckout] = useState<string | null>(null)
   const [billingError, setBillingError] = useState("")
   const [billingStatus, setBillingStatus] = useState<"success" | "cancel" | "">("")
+  const [billingCreditStatus, setBillingCreditStatus] = useState<BillingCreditStatus | null>(null)
+  const [isBillingStatusLoading, setIsBillingStatusLoading] = useState(false)
   const isSignedIn = Boolean(session?.user)
   const isAuthPending = isSessionPending || isSigningIn
+  const canBuyCreditPacks = billingCreditStatus ? canPurchaseCreditPack(billingCreditStatus) : false
+  const isKnownIneligibleForCreditPacks = isSignedIn && billingCreditStatus !== null && !canBuyCreditPacks
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -79,6 +96,49 @@ export function PricingPage() {
       setBillingStatus(status)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setBillingCreditStatus(null)
+      setIsBillingStatusLoading(false)
+      return
+    }
+
+    let isCanceled = false
+    setIsBillingStatusLoading(true)
+
+    fetch("/api/billing/status", {
+      headers: {
+        Accept: "application/json",
+      },
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Billing status could not be loaded.")
+        }
+
+        return (await response.json()) as { credits?: BillingCreditStatus }
+      })
+      .then((data) => {
+        if (!isCanceled) {
+          setBillingCreditStatus(data.credits || null)
+        }
+      })
+      .catch(() => {
+        if (!isCanceled) {
+          setBillingCreditStatus(null)
+        }
+      })
+      .finally(() => {
+        if (!isCanceled) {
+          setIsBillingStatusLoading(false)
+        }
+      })
+
+    return () => {
+      isCanceled = true
+    }
+  }, [isSignedIn])
 
   async function signInForCheckout(pendingKey: string) {
     if (isSigningIn) {
@@ -142,6 +202,11 @@ export function PricingPage() {
   }
 
   function startCreditPackCheckout(pack: CreditPack) {
+    if (isKnownIneligibleForCreditPacks) {
+      setBillingError("Subscribe to a paid plan before buying credit packs.")
+      return
+    }
+
     void startCheckout({ checkoutKind: "credit_pack", pack }, `pack:${pack}`)
   }
 
@@ -347,7 +412,7 @@ export function PricingPage() {
             </div>
             <h2 className="mt-4 text-2xl font-semibold text-foreground">Credit packs</h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              One-time credits are added on top of your plan and are useful when a project has a short burst of generation work.
+              One-time credits require an active paid plan and are useful when a project has a short burst of generation work.
             </p>
           </div>
 
@@ -390,11 +455,21 @@ export function PricingPage() {
                     variant="outline"
                     rounded="lg"
                     className="mt-6 w-full gap-2 bg-transparent"
-                    disabled={isAuthPending || pendingCheckout !== null}
+                    disabled={isAuthPending || pendingCheckout !== null || isBillingStatusLoading || isKnownIneligibleForCreditPacks}
                     onClick={() => startCreditPackCheckout(pack)}
                   >
                     {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <WalletCards className="h-4 w-4" aria-hidden="true" />}
-                    {isPending && !isSignedIn ? "Signing in" : isSignedIn ? "Buy pack" : "Sign in to buy"}
+                    {isPending && !isSignedIn
+                      ? "Signing in"
+                      : isPending
+                        ? "Opening checkout"
+                        : isSignedIn && isBillingStatusLoading
+                          ? "Checking plan"
+                          : isKnownIneligibleForCreditPacks
+                            ? "Requires plan"
+                            : isSignedIn
+                              ? "Buy pack"
+                              : "Sign in to buy"}
                   </Button>
                 </article>
               )

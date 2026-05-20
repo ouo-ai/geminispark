@@ -1,4 +1,4 @@
-import { BILLING_PLANS, CREDIT_PACKS } from "@/lib/billing-config"
+import { BILLING_PLANS, canPurchaseCreditPack, CREDIT_PACKS } from "@/lib/billing-config"
 import { ensureStripeCustomer, ensureUserCredit } from "@/lib/credits"
 import { prisma } from "@/lib/db"
 import { auth } from "@/lib/auth"
@@ -130,6 +130,9 @@ export async function POST(request: Request) {
       return Response.json({ error: "Sign in to subscribe." }, { status: 401 })
     }
 
+    const userId = session.user.id
+    const userEmail = session.user.email
+    const userName = session.user.name
     const body = (await request.json()) as {
       checkoutKind?: unknown
       plan?: unknown
@@ -142,29 +145,44 @@ export async function POST(request: Request) {
     notificationContext.plan = body.plan
     notificationContext.interval = body.interval
     notificationContext.pack = body.pack
-    const stripe = getStripe()
-    const user = await prisma.user.findUnique({ where: { id: session.user.id } })
+    const user = await prisma.user.findUnique({ where: { id: userId } })
 
-    await ensureUserCredit(session.user.id)
-    const customerId = await ensureStripeCustomer(session.user.id, async () => {
-      const customer = await stripe.customers.create({
-        email: user?.email || session.user.email || undefined,
-        name: user?.name || session.user.name || undefined,
-        metadata: {
-          userId: session.user.id,
-        },
-      })
+    const credit = await ensureUserCredit(userId)
+    let checkoutStripe: ReturnType<typeof getStripe> | undefined
+    let checkoutCustomerId: string | undefined
+    async function getCheckoutCustomer() {
+      const stripe = checkoutStripe ?? getStripe()
+      checkoutStripe = stripe
+      const customerId =
+        checkoutCustomerId ??
+        (await ensureStripeCustomer(userId, async () => {
+          const customer = await stripe.customers.create({
+            email: user?.email || userEmail || undefined,
+            name: user?.name || userName || undefined,
+            metadata: {
+              userId,
+            },
+          })
 
-      return customer.id
-    })
+          return customer.id
+        }))
+
+      checkoutCustomerId = customerId
+      return { stripe, customerId }
+    }
 
     const siteUrl = getSiteUrl()
     const returnPath = parseReturnPath(body.returnPath)
 
     if (checkoutKind === "credit_pack") {
       const pack = parseCheckoutCreditPack(body.pack)
+      if (!canPurchaseCreditPack(credit)) {
+        return Response.json({ error: "Subscribe to a paid plan before buying credit packs." }, { status: 403 })
+      }
+
+      const { stripe, customerId } = await getCheckoutCustomer()
       const details = CREDIT_PACKS[pack]
-      const priceId = getStripeCreditPackPriceId(pack)
+      const priceId = await getStripeCreditPackPriceId(pack)
       const checkout = await stripe.checkout.sessions.create({
         mode: "payment",
         customer: customerId,
@@ -177,14 +195,14 @@ export async function POST(request: Request) {
         success_url: checkoutStatusUrl(siteUrl, returnPath, "success"),
         cancel_url: checkoutStatusUrl(siteUrl, returnPath, "cancel"),
         metadata: {
-          userId: session.user.id,
+          userId,
           checkoutKind,
           pack,
           credits: String(details.credits),
         },
         payment_intent_data: {
           metadata: {
-            userId: session.user.id,
+            userId,
             checkoutKind,
             pack,
             credits: String(details.credits),
@@ -195,9 +213,10 @@ export async function POST(request: Request) {
       return Response.json({ url: checkout.url })
     }
 
+    const { stripe, customerId } = await getCheckoutCustomer()
     const plan = parseCheckoutPlan(body.plan)
     const interval = parseCheckoutInterval(body.interval || "year")
-    const priceId = getStripePriceId(plan, interval)
+    const priceId = await getStripePriceId(plan, interval)
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
@@ -210,14 +229,14 @@ export async function POST(request: Request) {
       success_url: checkoutStatusUrl(siteUrl, returnPath, "success"),
       cancel_url: checkoutStatusUrl(siteUrl, returnPath, "cancel"),
       metadata: {
-        userId: session.user.id,
+        userId,
         checkoutKind,
         plan,
         interval,
       },
       subscription_data: {
         metadata: {
-          userId: session.user.id,
+          userId,
           checkoutKind,
           plan,
           interval,

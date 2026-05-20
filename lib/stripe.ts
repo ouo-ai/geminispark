@@ -4,7 +4,9 @@ import {
   isBillingInterval,
   isCreditPack,
   isPaidPlan,
+  stripeCreditPackPriceLookupKey,
   stripeCreditPackPriceEnvName,
+  stripePriceLookupKey,
   stripePriceEnvName,
   type BillingInterval,
   type CreditPack,
@@ -12,6 +14,7 @@ import {
 } from "@/lib/billing-config"
 
 let stripeClient: Stripe | undefined
+const priceIdLookupCache = new Map<string, string>()
 
 export function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) {
@@ -50,24 +53,44 @@ export function parseCheckoutInterval(value: unknown): BillingInterval {
   return value
 }
 
-export function getStripePriceId(plan: PaidPlan, interval: BillingInterval) {
-  const envName = stripePriceEnvName(plan, interval)
-  const priceId = process.env[envName]
-  if (!priceId) {
-    throw new Error(`${envName} is not configured.`)
+async function findStripePriceIdByLookupKey(lookupKey: string, envName: string) {
+  const cached = priceIdLookupCache.get(lookupKey)
+  if (cached) {
+    return cached
   }
 
+  const prices = await getStripe().prices.list({
+    active: true,
+    lookup_keys: [lookupKey],
+    limit: 1,
+  })
+  const priceId = prices.data[0]?.id
+  if (!priceId) {
+    throw new Error(`${envName} is not configured and no active Stripe price was found for lookup key ${lookupKey}.`)
+  }
+
+  priceIdLookupCache.set(lookupKey, priceId)
   return priceId
 }
 
-export function getStripeCreditPackPriceId(pack: CreditPack) {
-  const envName = stripeCreditPackPriceEnvName(pack)
+export async function getStripePriceId(plan: PaidPlan, interval: BillingInterval) {
+  const envName = stripePriceEnvName(plan, interval)
   const priceId = process.env[envName]
-  if (!priceId) {
-    throw new Error(`${envName} is not configured.`)
+  if (priceId) {
+    return priceId
   }
 
-  return priceId
+  return findStripePriceIdByLookupKey(stripePriceLookupKey(plan, interval), envName)
+}
+
+export async function getStripeCreditPackPriceId(pack: CreditPack) {
+  const envName = stripeCreditPackPriceEnvName(pack)
+  const priceId = process.env[envName]
+  if (priceId) {
+    return priceId
+  }
+
+  return findStripePriceIdByLookupKey(stripeCreditPackPriceLookupKey(pack), envName)
 }
 
 export function paidPlanFromPriceId(priceId: string | null | undefined): PaidPlan | null {

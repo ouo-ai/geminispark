@@ -59,6 +59,19 @@ export function isBillingInterval(value: unknown): value is BillingInterval {
   return value === "month" || value === "year"
 }
 
+export function isActiveSubscriptionStatus(value: unknown) {
+  if (typeof value !== "string") {
+    return false
+  }
+
+  const normalized = value.toLowerCase()
+  return normalized === "active" || normalized === "trialing"
+}
+
+export function canPurchaseCreditPack(credit: { plan?: string | null; subscriptionStatus?: string | null }) {
+  return typeof credit.plan === "string" && credit.plan.toLowerCase() !== "free" && isActiveSubscriptionStatus(credit.subscriptionStatus)
+}
+
 export function addMonths(date: Date, months: number) {
   const next = new Date(date)
   next.setMonth(next.getMonth() + months)
@@ -71,4 +84,12 @@ export function stripePriceEnvName(plan: PaidPlan, interval: BillingInterval) {
 
 export function stripeCreditPackPriceEnvName(pack: CreditPack) {
   return `STRIPE_CREDIT_PACK_${pack}_PRICE_ID`
+}
+
+export function stripePriceLookupKey(plan: PaidPlan, interval: BillingInterval) {
+  return `geminispark_${plan.toLowerCase()}_${interval === "year" ? "yearly" : "monthly"}`
+}
+
+export function stripeCreditPackPriceLookupKey(pack: CreditPack) {
+  return `geminispark_credit_pack_${pack.toLowerCase()}`
 }
