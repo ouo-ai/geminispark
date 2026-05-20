@@ -10,13 +10,13 @@ export const CREDIT_COSTS = {
 export const BILLING_PLANS = {
   STARTUP: {
     label: "Startup",
-    monthlyCredits: 100,
+    monthlyCredits: 1000,
     monthlyPriceUsd: 100,
     yearlyPriceUsd: 1000,
   },
   PRO: {
     label: "Pro",
-    monthlyCredits: 250,
+    monthlyCredits: 2500,
     monthlyPriceUsd: 200,
     yearlyPriceUsd: 2000,
   },

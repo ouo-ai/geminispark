@@ -32,8 +32,8 @@ function cycleMonths(interval: BillingInterval | null | undefined) {
 
 function planCredits(plan: BillingPlan, interval?: BillingInterval | null) {
   const multiplier = cycleMonths(interval)
-  if (plan === BillingPlan.STARTUP) return 100 * multiplier
-  if (plan === BillingPlan.PRO) return 250 * multiplier
+  if (plan === BillingPlan.STARTUP) return 1000 * multiplier
+  if (plan === BillingPlan.PRO) return 2500 * multiplier
   return 0
 }
 
