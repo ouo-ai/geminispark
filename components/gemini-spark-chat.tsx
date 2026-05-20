@@ -57,7 +57,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Kbd } from "@/components/ui/kbd"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BILLING_PLANS, CREDIT_COSTS, CREDIT_PACKS, type BillingInterval, type CreditPack, type PaidPlan } from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
@@ -232,6 +234,19 @@ const quickPrompts = [
   "Turn this into a concise agent plan.",
 ]
 
+const paidPlanOrder = ["STARTUP", "PRO"] as const
+const creditPackOrder = ["BOOST_50", "STUDIO_150", "LAUNCH_400"] as const
+const moneyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+})
+const billingUsageCosts = [
+  { label: "Chat", cost: CREDIT_COSTS.text, icon: MessageSquare },
+  { label: "Image", cost: CREDIT_COSTS.image, icon: ImageIcon },
+  { label: "Video", cost: CREDIT_COSTS["text-to-video"], icon: Video },
+]
+
 const thinkingLines = [
   "Connecting to Gemini Spark...",
   "Reading the workspace context...",
@@ -269,6 +284,24 @@ function creditEquivalents(credits: number) {
     images: Math.floor(credits / CREDIT_COSTS.image),
     videos: Math.floor(credits / CREDIT_COSTS["text-to-video"]),
   }
+}
+
+function formatMoney(value: number) {
+  return moneyFormatter.format(value)
+}
+
+function yearlySavings(plan: PaidPlan) {
+  const details = BILLING_PLANS[plan]
+  return Math.round((1 - details.yearlyPriceUsd / (details.monthlyPriceUsd * 12)) * 100)
+}
+
+function priceForInterval(plan: PaidPlan, interval: BillingInterval) {
+  const details = BILLING_PLANS[plan]
+  return interval === "year" ? details.yearlyPriceUsd : details.monthlyPriceUsd
+}
+
+function perCreditLabel(credits: number, priceUsd: number) {
+  return `$${(priceUsd / credits).toFixed(2)} / credit`
 }
 
 function agentApiUrl(path: string) {
@@ -496,6 +529,26 @@ function WorkspaceInitializationPanel({
             Retry
           </Button>
         )}
+      </div>
+    </div>
+  )
+}
+
+function SessionDetectionPanel() {
+  return (
+    <div className="relative z-10 flex h-full min-h-0 items-center justify-center px-4">
+      <div className="w-full max-w-sm rounded-lg border border-border bg-background/82 p-5 backdrop-blur-xl">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Checking your session</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Confirming whether you are signed in before loading Gemini Spark.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1346,6 +1399,7 @@ function MarkdownMessage({ content, isUser }: { content: string; isUser: boolean
 
 export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string } = {}) {
   const { data: session, isPending: isSessionPending } = authClient.useSession()
+  const [isSigningIn, setIsSigningIn] = useState(false)
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
   const [isSessionPanelCollapsed, setIsSessionPanelCollapsed] = useState(readSessionPanelCollapsed)
@@ -1395,6 +1449,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const latestVisibleMessage = visibleMessages[visibleMessages.length - 1]
   const latestMediaKey = latestVisibleMessage?.media?.urls.join("|") ?? ""
   const isSignedIn = Boolean(session?.user)
+  const isAuthPending = isSessionPending || isSigningIn
   const workspaceState =
     isSignedIn && !isActiveProjectBootstrapped
       ? ("initializing" as const)
@@ -1424,11 +1479,20 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     })
   }, [])
 
-  function signInWithGoogle() {
-    void authClient.signIn.social({
-      provider: "google",
-      callbackURL: initialThreadId ? chatThreadPath(initialThreadId) : `/gemini-spark${currentUrlSearch()}`,
-    })
+  async function signInWithGoogle() {
+    if (isSigningIn) {
+      return
+    }
+
+    setIsSigningIn(true)
+    try {
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL: initialThreadId ? chatThreadPath(initialThreadId) : `/gemini-spark${currentUrlSearch()}`,
+      })
+    } catch {
+      setIsSigningIn(false)
+    }
   }
 
   function signOut() {
@@ -1815,7 +1879,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
   async function startNewChat() {
     if (!isSignedIn) {
-      signInWithGoogle()
+      void signInWithGoogle()
       return
     }
 
@@ -1856,7 +1920,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
   function openNewProjectDialog() {
     if (!isSignedIn) {
-      signInWithGoogle()
+      void signInWithGoogle()
       return
     }
 
@@ -1874,7 +1938,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     event.preventDefault()
 
     if (!isSignedIn) {
-      signInWithGoogle()
+      void signInWithGoogle()
       return
     }
 
@@ -2301,14 +2365,17 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
         <div className="absolute inset-0 bg-cover bg-right-top" style={{ backgroundImage: "url('/grade.png')" }} />
       </div>
 
-      <div
-        className={cn(
-          "relative z-10 grid h-full min-h-0",
-          isSessionPanelCollapsed
-            ? "lg:grid-cols-[72px_minmax(0,1fr)]"
-            : "lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]",
-        )}
-      >
+      {isSessionPending ? (
+        <SessionDetectionPanel />
+      ) : (
+        <div
+          className={cn(
+            "relative z-10 grid h-full min-h-0",
+            isSessionPanelCollapsed
+              ? "lg:grid-cols-[72px_minmax(0,1fr)]"
+              : "lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]",
+          )}
+        >
           <aside
             className={cn(
               "hidden border-r border-border/70 bg-background/82 backdrop-blur-xl lg:flex lg:min-h-0 lg:flex-col",
@@ -2638,9 +2705,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={signInWithGoogle} disabled={isSessionPending}>
-                    <User className="h-4 w-4" aria-hidden="true" />
-                    Sign in
+                  <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={() => void signInWithGoogle()} disabled={isAuthPending}>
+                    {isAuthPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <User className="h-4 w-4" aria-hidden="true" />}
+                    {isAuthPending ? "Signing in" : "Sign in"}
                   </Button>
                 )}
                 <Button
@@ -2908,8 +2975,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   {!isSignedIn && (
                     <div className="mb-3 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
                       <span>Sign in with Google to start a Gemini Spark chat.</span>
-                      <Button type="button" size="sm" rounded="full" className="w-fit" onClick={signInWithGoogle} disabled={isSessionPending}>
-                        Sign in
+                      <Button type="button" size="sm" rounded="full" className="w-fit gap-2" onClick={() => void signInWithGoogle()} disabled={isAuthPending}>
+                        {isAuthPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                        {isAuthPending ? "Signing in" : "Sign in"}
                       </Button>
                     </div>
                   )}
@@ -2994,17 +3062,31 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       aria-label="Message Gemini Spark"
                       disabled={isChatInputDisabled}
                     />
-                    <Button type="submit" rounded="xl" className="h-11 gap-2" disabled={isChatInputDisabled || !draft.trim()}>
-                      {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      {isThinking ? "Thinking" : "Send"}
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button type="submit" rounded="xl" className="h-11 gap-2" disabled={isChatInputDisabled || !draft.trim()}>
+                            {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            {isThinking ? "Thinking" : "Send"}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="end" sideOffset={8} className="flex items-center gap-2 whitespace-nowrap">
+                        <span>Send with</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Kbd>⌘</Kbd>
+                          <Kbd>Enter</Kbd>
+                        </span>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               </form>
             </div>
           </div>
 
-      </div>
+        </div>
+      )}
       <Dialog
         open={Boolean(renameTarget)}
         onOpenChange={(open) => {
@@ -3149,139 +3231,239 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
         </DialogContent>
       </Dialog>
       <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
-        <DialogContent className="max-h-[min(86dvh,760px)] max-w-3xl overflow-y-auto border-border bg-card">
-          <DialogHeader>
-            <DialogTitle>Upgrade Gemini Spark</DialogTitle>
-            <DialogDescription>
-              Credits are used for every task. Chat costs 1 credit, images cost 5, and videos cost 10.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex w-fit rounded-full border border-border bg-background/60 p-1">
-            {(["year", "month"] as const).map((interval) => (
-              <button
-                key={interval}
-                type="button"
-                onClick={() => setBillingInterval(interval)}
-                className={cn(
-                  "rounded-full px-4 py-1.5 text-xs font-medium transition",
-                  billingInterval === interval ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {interval === "year" ? "Yearly" : "Monthly"}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(["STARTUP", "PRO"] as const).map((plan) => {
-              const details = BILLING_PLANS[plan]
-              const price = billingInterval === "year" ? details.yearlyPriceUsd : details.monthlyPriceUsd
-              const yearlyCredits = details.monthlyCredits * 12
-              const cycleCredits = billingInterval === "year" ? yearlyCredits : details.monthlyCredits
-              const equivalents = creditEquivalents(cycleCredits)
-
-              return (
-                <div key={plan} className="rounded-lg border border-border bg-background/55 p-4">
-                  <div className="mb-4 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{details.label}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {billingInterval === "year"
-                          ? `${yearlyCredits} credits granted upfront`
-                          : `${details.monthlyCredits} credits each month`}
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs text-primary">
-                      ${price}/{billingInterval === "year" ? "yr" : "mo"}
-                    </span>
-                  </div>
-                  <div className="mb-4 grid gap-1.5 text-xs text-muted-foreground">
-                    <span className="flex items-center justify-between gap-2">
-                      <span>{billingInterval === "year" ? "Credits today" : "Monthly credits"}</span>
-                      <span className="font-medium text-foreground">{cycleCredits}</span>
-                    </span>
-                    <span className="flex items-center justify-between gap-2">
-                      <span>{billingInterval === "year" ? "Next refresh" : "Included this month"}</span>
-                      <span className="font-medium text-foreground">
-                        {billingInterval === "year" ? "12 months" : details.monthlyCredits}
-                      </span>
-                    </span>
-                    <span className="flex items-center justify-between gap-2">
-                      <span>Image / video tasks</span>
-                      <span className="font-medium text-foreground">
-                        {equivalents.images} / {equivalents.videos}
-                      </span>
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    rounded="lg"
-                    className="w-full gap-2"
-                    onClick={() => void startCheckout(plan)}
-                    disabled={checkoutPlan !== null || checkoutPack !== null}
-                  >
-                    {checkoutPlan === plan ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
-                    Continue
-                  </Button>
+        <DialogContent className="max-h-[min(90dvh,840px)] w-[calc(100vw-32px)] max-w-none gap-0 overflow-hidden border-white/10 bg-[oklch(0.085_0.006_250)] p-0 shadow-[0_28px_110px_rgb(0_0_0_/_0.72)] sm:w-[min(1120px,calc(100vw-48px))] sm:max-w-none">
+          <div className="max-h-[min(90dvh,840px)] overflow-y-auto">
+            <div className="border-b border-white/10 bg-[linear-gradient(135deg,oklch(0.12_0.012_250),oklch(0.075_0.006_250)_70%)] px-5 pb-5 pt-6 sm:px-7 sm:pb-6 sm:pt-7">
+              <DialogHeader className="max-w-2xl gap-3 pr-10 text-left">
+                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  Workspace credits
                 </div>
-              )
-            })}
-          </div>
+                <DialogTitle className="text-2xl font-semibold leading-tight tracking-display text-foreground sm:text-3xl">
+                  Upgrade Gemini Spark
+                </DialogTitle>
+                <DialogDescription className="max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+                  One balance powers every task across chat, image, and video work.
+                </DialogDescription>
+              </DialogHeader>
 
-          <div className="grid gap-3 border-t border-border pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Credit packs</p>
-                <p className="mt-1 text-xs text-muted-foreground">One-time credits for larger project bursts.</p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                {billingUsageCosts.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between rounded-md border border-white/10 bg-background/45 px-3 py-2.5">
+                    <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                      <item.icon className="h-4 w-4 text-primary" aria-hidden="true" />
+                      {item.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {item.cost} credit{item.cost > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                ))}
               </div>
-              <Button type="button" variant="ghost" rounded="lg" className="h-8 px-2 text-xs" asChild>
-                <Link href="/pricing">View pricing</Link>
-              </Button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {(["BOOST_50", "STUDIO_150", "LAUNCH_400"] as const).map((pack) => {
-                const details = CREDIT_PACKS[pack]
-                const equivalents = creditEquivalents(details.credits)
+
+            <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Choose a plan</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {billingInterval === "year" ? "Annual credits are granted upfront." : "Monthly credits refresh every billing period."}
+                </p>
+              </div>
+              <div className="flex w-fit rounded-full border border-white/10 bg-background/60 p-1 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)]">
+                {(["year", "month"] as const).map((interval) => (
+                  <button
+                    key={interval}
+                    type="button"
+                    onClick={() => setBillingInterval(interval)}
+                    className={cn(
+                      "inline-flex min-w-24 items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition",
+                      billingInterval === interval
+                        ? "bg-primary text-primary-foreground shadow-[0_10px_24px_oklch(0.68_0.19_255_/_0.24)]"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    aria-pressed={billingInterval === interval}
+                  >
+                    {interval === "year" ? `Yearly - save ${yearlySavings("PRO")}%` : "Monthly"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-4 px-5 py-5 sm:px-7 lg:grid-cols-2">
+              {paidPlanOrder.map((plan) => {
+                const details = BILLING_PLANS[plan]
+                const price = priceForInterval(plan, billingInterval)
+                const yearlyCredits = details.monthlyCredits * 12
+                const cycleCredits = billingInterval === "year" ? yearlyCredits : details.monthlyCredits
+                const equivalents = creditEquivalents(cycleCredits)
+                const effectiveMonthly = billingInterval === "year" ? price / 12 : price
+                const isPro = plan === "PRO"
+                const isPending = checkoutPlan === plan
 
                 return (
-                  <div key={pack} className="rounded-lg border border-border bg-background/55 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{details.label}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{details.credits} credits</p>
-                      </div>
-                      <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                        ${details.priceUsd}
+                  <article
+                    key={plan}
+                    className={cn(
+                      "relative flex min-h-[430px] flex-col overflow-hidden rounded-lg border bg-background/42 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.035)]",
+                      isPro ? "border-primary/45 bg-primary/[0.055]" : "border-white/10",
+                    )}
+                  >
+                    {isPro && (
+                      <span className="absolute right-4 top-4 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                        Most capacity
                       </span>
+                    )}
+
+                    <div className="flex flex-1 flex-col p-5">
+                      <div className="max-w-[74%]">
+                        <h3 className="text-xl font-semibold text-foreground">{details.label}</h3>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          {billingInterval === "year"
+                            ? `${yearlyCredits} credits available immediately after checkout.`
+                            : `${details.monthlyCredits} credits added each month for active work.`}
+                        </p>
+                      </div>
+
+                      <div className="mt-7 flex items-end gap-2">
+                        <span className="text-4xl font-semibold leading-none text-foreground">{formatMoney(price)}</span>
+                        <span className="pb-1 text-sm text-muted-foreground">/{billingInterval === "year" ? "year" : "month"}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {billingInterval === "year"
+                          ? `${formatMoney(effectiveMonthly)} per month equivalent.`
+                          : `Switch to yearly and save ${yearlySavings(plan)}%.`}
+                      </p>
+
+                      <div className="mt-6 grid grid-cols-3 gap-2">
+                        <div className="min-h-[76px] rounded-md border border-white/10 bg-card/45 px-3 py-3">
+                          <p className="text-lg font-semibold text-foreground">{cycleCredits}</p>
+                          <p className="mt-1 text-xs leading-4 text-muted-foreground">
+                            {billingInterval === "year" ? "credits today" : "credits / mo"}
+                          </p>
+                        </div>
+                        <div className="min-h-[76px] rounded-md border border-white/10 bg-card/45 px-3 py-3">
+                          <p className="text-lg font-semibold text-foreground">{equivalents.images}</p>
+                          <p className="mt-1 text-xs leading-4 text-muted-foreground">image tasks</p>
+                        </div>
+                        <div className="min-h-[76px] rounded-md border border-white/10 bg-card/45 px-3 py-3">
+                          <p className="text-lg font-semibold text-foreground">{equivalents.videos}</p>
+                          <p className="mt-1 text-xs leading-4 text-muted-foreground">video tasks</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 grid gap-2 border-t border-white/10 pt-4 text-sm text-muted-foreground">
+                        <span className="inline-flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                          {billingInterval === "year" ? "Full year of credits granted upfront" : "Credits refresh every month"}
+                        </span>
+                        <span className="inline-flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                          Up to {equivalents.chats} chats from this credit pool
+                        </span>
+                        <span className="inline-flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                          Project workspace and Stripe billing management
+                        </span>
+                      </div>
                     </div>
-                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                      Up to {equivalents.chats} chats, {equivalents.images} images, or {equivalents.videos} videos.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      rounded="lg"
-                      className="mt-3 w-full gap-2 bg-transparent"
-                      onClick={() => void startCreditPackCheckout(pack)}
-                      disabled={checkoutPlan !== null || checkoutPack !== null}
-                    >
-                      {checkoutPack === pack ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
-                      Buy pack
-                    </Button>
-                  </div>
+
+                    <div className="border-t border-white/10 p-4">
+                      <Button
+                        type="button"
+                        variant={isPro ? "default" : "outline"}
+                        rounded="lg"
+                        className={cn("h-11 w-full gap-2", !isPro && "bg-transparent")}
+                        onClick={() => void startCheckout(plan)}
+                        disabled={checkoutPlan !== null || checkoutPack !== null}
+                      >
+                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
+                        {isPending ? "Opening checkout" : `Continue with ${details.label}`}
+                      </Button>
+                    </div>
+                  </article>
                 )
               })}
             </div>
+
+            <div className="border-t border-white/10 px-5 pb-6 pt-5 sm:px-7">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-base font-semibold text-foreground">Credit packs</p>
+                  <p className="mt-1 text-sm text-muted-foreground">One-time reserves for bigger launches and media batches.</p>
+                </div>
+                <Button type="button" variant="ghost" rounded="lg" className="h-9 w-fit px-3 text-sm" asChild>
+                  <Link href="/pricing">View pricing</Link>
+                </Button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {creditPackOrder.map((pack) => {
+                  const details = CREDIT_PACKS[pack]
+                  const equivalents = creditEquivalents(details.credits)
+                  const isPending = checkoutPack === pack
+
+                  return (
+                    <article key={pack} className="flex min-h-[250px] flex-col rounded-lg border border-white/10 bg-background/38 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-semibold text-foreground">{details.label}</h3>
+                          <p className="mt-1 text-xs font-medium text-primary">{perCreditLabel(details.credits, details.priceUsd)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xl font-semibold text-foreground">{formatMoney(details.priceUsd)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{details.credits} credits</p>
+                        </div>
+                      </div>
+
+                      <p className="mt-4 text-sm leading-6 text-muted-foreground">{details.description}</p>
+
+                      <div className="mt-4 grid gap-1.5 border-t border-white/10 pt-4 text-xs text-muted-foreground">
+                        <span className="flex items-center justify-between gap-2">
+                          <span>Chat</span>
+                          <span className="font-medium text-foreground">up to {equivalents.chats}</span>
+                        </span>
+                        <span className="flex items-center justify-between gap-2">
+                          <span>Image / video</span>
+                          <span className="font-medium text-foreground">
+                            {equivalents.images} / {equivalents.videos}
+                          </span>
+                        </span>
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        rounded="lg"
+                        className="mt-auto w-full gap-2 bg-transparent"
+                        onClick={() => void startCreditPackCheckout(pack)}
+                        disabled={checkoutPlan !== null || checkoutPack !== null}
+                      >
+                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
+                        {isPending ? "Opening checkout" : "Buy pack"}
+                      </Button>
+                    </article>
+                  )
+                })}
+              </div>
+
+              {((account && account.credits.plan !== "free") || billingError) && (
+                <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  {account && account.credits.plan !== "free" && (
+                    <Button type="button" variant="outline" rounded="lg" className="w-fit gap-2 bg-transparent" onClick={() => void openBillingPortal()}>
+                      <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                      Manage billing
+                    </Button>
+                  )}
+
+                  {billingError && (
+                    <p className="rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+                      {billingError}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-
-          {account?.credits.plan !== "free" && (
-            <Button type="button" variant="outline" rounded="lg" className="w-fit bg-transparent" onClick={() => void openBillingPortal()}>
-              Manage billing
-            </Button>
-          )}
-
-          {billingError && <p className="text-sm text-destructive">{billingError}</p>}
         </DialogContent>
       </Dialog>
     </section>

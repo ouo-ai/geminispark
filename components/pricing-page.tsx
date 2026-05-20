@@ -64,11 +64,13 @@ function creditEquivalents(credits: number) {
 
 export function PricingPage() {
   const { data: session, isPending: isSessionPending } = authClient.useSession()
+  const [isSigningIn, setIsSigningIn] = useState(false)
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year")
   const [pendingCheckout, setPendingCheckout] = useState<string | null>(null)
   const [billingError, setBillingError] = useState("")
   const [billingStatus, setBillingStatus] = useState<"success" | "cancel" | "">("")
   const isSignedIn = Boolean(session?.user)
+  const isAuthPending = isSessionPending || isSigningIn
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -78,16 +80,31 @@ export function PricingPage() {
     }
   }, [])
 
-  function signInForCheckout() {
-    void authClient.signIn.social({
-      provider: "google",
-      callbackURL: "/pricing",
-    })
+  async function signInForCheckout(pendingKey: string) {
+    if (isSigningIn) {
+      return
+    }
+
+    setBillingError("")
+    setBillingStatus("")
+    setPendingCheckout(pendingKey)
+    setIsSigningIn(true)
+
+    try {
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/pricing",
+      })
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "Sign in could not be started.")
+      setPendingCheckout(null)
+      setIsSigningIn(false)
+    }
   }
 
   async function startCheckout(payload: Record<string, unknown>, pendingKey: string) {
     if (!isSignedIn) {
-      signInForCheckout()
+      void signInForCheckout(pendingKey)
       return
     }
 
@@ -312,11 +329,11 @@ export function PricingPage() {
                   type="button"
                   rounded="lg"
                   className="mt-7 w-full gap-2"
-                  disabled={isSessionPending || pendingCheckout !== null}
+                  disabled={isAuthPending || pendingCheckout !== null}
                   onClick={() => startPlanCheckout(plan)}
                 >
                   {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
-                  {isSignedIn ? `Start ${details.label}` : "Sign in to buy"}
+                  {isPending && !isSignedIn ? "Signing in" : isSignedIn ? `Start ${details.label}` : "Sign in to buy"}
                 </Button>
               </article>
             )
@@ -373,11 +390,11 @@ export function PricingPage() {
                     variant="outline"
                     rounded="lg"
                     className="mt-6 w-full gap-2 bg-transparent"
-                    disabled={isSessionPending || pendingCheckout !== null}
+                    disabled={isAuthPending || pendingCheckout !== null}
                     onClick={() => startCreditPackCheckout(pack)}
                   >
                     {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <WalletCards className="h-4 w-4" aria-hidden="true" />}
-                    {isSignedIn ? "Buy pack" : "Sign in to buy"}
+                    {isPending && !isSignedIn ? "Signing in" : isSignedIn ? "Buy pack" : "Sign in to buy"}
                   </Button>
                 </article>
               )

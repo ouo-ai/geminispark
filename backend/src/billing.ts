@@ -1,12 +1,5 @@
-import {
-  BillingInterval,
-  BillingPlan,
-  CreditBucket,
-  CreditTransactionType,
-  Prisma,
-  SubscriptionStatus,
-  TaskIntent,
-} from "@prisma/client"
+import type { BillingInterval, Prisma } from "@prisma/client"
+import { BillingPlan, CreditBucket, CreditTransactionType, SubscriptionStatus, TaskIntent } from "@prisma/client"
 
 import { prisma } from "./db.js"
 
@@ -22,6 +15,10 @@ export class PaymentRequiredError extends Error {
 
 const INITIAL_FREE_CREDITS = 2
 const ACTIVE_STATUSES = new Set<SubscriptionStatus>([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING])
+const BILLING_INTERVAL = {
+  MONTH: "MONTH",
+  YEAR: "YEAR",
+} as const satisfies { MONTH: BillingInterval; YEAR: BillingInterval }
 
 function addMonths(date: Date, months: number) {
   const next = new Date(date)
@@ -30,7 +27,7 @@ function addMonths(date: Date, months: number) {
 }
 
 function cycleMonths(interval: BillingInterval | null | undefined) {
-  return interval === BillingInterval.YEAR ? 12 : 1
+  return interval === BILLING_INTERVAL.YEAR ? 12 : 1
 }
 
 function planCredits(plan: BillingPlan, interval?: BillingInterval | null) {
@@ -77,7 +74,7 @@ async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, 
     })
   }
 
-  const interval = credit.billingInterval || BillingInterval.MONTH
+  const interval = credit.billingInterval || BILLING_INTERVAL.MONTH
   const cycleCredits = planCredits(credit.plan, interval)
   if (!ACTIVE_STATUSES.has(credit.subscriptionStatus) || cycleCredits <= 0) {
     return credit
@@ -108,7 +105,7 @@ async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, 
         amount: cycleCredits,
         balanceAfterFree: credit.freeCreditsRemaining,
         balanceAfterPeriod: credit.periodCreditsRemaining,
-        description: interval === BillingInterval.YEAR ? "Annual plan credits granted." : "Monthly plan credits granted.",
+        description: interval === BILLING_INTERVAL.YEAR ? "Annual plan credits granted." : "Monthly plan credits granted.",
         idempotencyKey: `credit-period:${userId}:${interval.toLowerCase()}:${periodStart.toISOString()}`,
       },
     ],

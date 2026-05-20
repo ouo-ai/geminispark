@@ -1,11 +1,5 @@
-import {
-  BillingInterval as PrismaBillingInterval,
-  BillingPlan,
-  CreditBucket,
-  CreditTransactionType,
-  Prisma,
-  SubscriptionStatus,
-} from "@prisma/client"
+import type { BillingInterval as PrismaBillingInterval, Prisma } from "@prisma/client"
+import { BillingPlan, CreditBucket, CreditTransactionType, SubscriptionStatus } from "@prisma/client"
 
 import {
   addMonths,
@@ -19,11 +13,15 @@ import {
 import { prisma } from "@/lib/db"
 
 const ACTIVE_STATUSES = new Set<SubscriptionStatus>([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING])
+const PRISMA_BILLING_INTERVAL = {
+  MONTH: "MONTH",
+  YEAR: "YEAR",
+} as const satisfies { MONTH: PrismaBillingInterval; YEAR: PrismaBillingInterval }
 
 type CreditRecord = Prisma.UserCreditGetPayload<Record<string, never>>
 
 function cycleMonths(interval: PrismaBillingInterval | null | undefined) {
-  return interval === PrismaBillingInterval.YEAR ? 12 : 1
+  return interval === PRISMA_BILLING_INTERVAL.YEAR ? 12 : 1
 }
 
 function planCredits(plan: BillingPlan, interval?: PrismaBillingInterval | null) {
@@ -38,7 +36,7 @@ function toBillingPlan(plan: PaidPlan) {
 }
 
 function toPrismaBillingInterval(interval: BillingInterval) {
-  return interval === "year" ? PrismaBillingInterval.YEAR : PrismaBillingInterval.MONTH
+  return interval === "year" ? PRISMA_BILLING_INTERVAL.YEAR : PRISMA_BILLING_INTERVAL.MONTH
 }
 
 function toJson(value: unknown) {
@@ -69,7 +67,7 @@ function nextGrantDates(interval: PrismaBillingInterval | null | undefined, now 
 }
 
 async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditRecord, now = new Date()) {
-  const interval = credit.billingInterval || PrismaBillingInterval.MONTH
+  const interval = credit.billingInterval || PRISMA_BILLING_INTERVAL.MONTH
   const cycleCredits = planCredits(credit.plan, interval)
   if (!ACTIVE_STATUSES.has(credit.subscriptionStatus) || cycleCredits <= 0) {
     return credit
@@ -97,7 +95,7 @@ async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditReco
         amount: cycleCredits,
         balanceAfterFree: updated.freeCreditsRemaining,
         balanceAfterPeriod: updated.periodCreditsRemaining,
-        description: interval === PrismaBillingInterval.YEAR ? "Annual plan credits granted." : "Monthly plan credits granted.",
+        description: interval === PRISMA_BILLING_INTERVAL.YEAR ? "Annual plan credits granted." : "Monthly plan credits granted.",
         idempotencyKey: `credit-period:${credit.userId}:${interval.toLowerCase()}:${dates.creditsPeriodStart.toISOString()}`,
       },
     ],
