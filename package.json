@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "pnpm prisma:generate && next build",
     "backend:build": "tsc -p backend/tsconfig.json",
     "backend:dev": "tsx backend/src/server.ts",
     "backend:start": "node backend/dist/server.js",
@@ -12,6 +12,7 @@
     "dev": "next dev",
     "lint": "eslint .",
     "prisma:generate": "prisma generate --schema backend/prisma/schema.prisma",
+    "postinstall": "prisma generate --schema backend/prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema backend/prisma/schema.prisma",
     "start": "next start",
     "stripe:setup-prices": "node scripts/setup-stripe-prices.mjs"
