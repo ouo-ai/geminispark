@@ -1251,7 +1251,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setBootstrapError("")
 
     try {
-      const nextAccount = await fetchAccountBootstrap(projectAgentId ?? activeProject?.id, chatThreadId ?? activeSession?.id)
+      const targetProjectAgentId = projectAgentId === undefined ? activeProject?.id : projectAgentId
+      const targetChatThreadId = chatThreadId === undefined ? activeSession?.id : chatThreadId
+      const nextAccount = await fetchAccountBootstrap(targetProjectAgentId, targetChatThreadId)
       setAccount(nextAccount)
       setActiveProjectId(nextAccount.activeProject.id)
       return nextAccount
