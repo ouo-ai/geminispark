@@ -165,7 +165,7 @@ function openClawEvents(value: unknown) {
     .map((item) => ({
       id: typeof item.id === "string" ? item.id : undefined,
       type: typeof item.type === "string" && item.type ? item.type : "openclaw",
-      message: typeof item.message === "string" && item.message ? item.message : "OpenClaw updated.",
+      message: typeof item.message === "string" && item.message ? item.message.replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME) : `${PUBLIC_AGENT_NAME} updated.`,
       data: item.data,
       createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
     }))
@@ -450,14 +450,14 @@ export async function callOpenClawRun(
 
       return {
         intent: finalIntent,
-        provider: "OpenClaw",
+        provider: PUBLIC_AGENT_NAME,
         model: typeof latest.model === "string" ? latest.model : config.openClawDefaultModel,
         workspaceId,
         taskId: runId,
         message:
           (typeof latest.message === "string" && latest.message) ||
           artifacts.find((artifact) => typeof artifact.text === "string")?.text ||
-          "OpenClaw completed the task.",
+          `${PUBLIC_AGENT_NAME} completed the task.`,
         media:
           mediaUrls.length > 0
             ? { type: mediaKindFromUrls(mediaUrls, mediaFallbackForIntent(finalIntent)), urls: mediaUrls }
@@ -467,11 +467,11 @@ export async function callOpenClawRun(
     }
 
     if (status === "failed" || status === "error" || status === "canceled" || status === "cancelled") {
-      throw new Error((typeof latest.error === "string" && latest.error) || "OpenClaw task failed.")
+      throw new Error((typeof latest.error === "string" && latest.error.replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME)) || `${PUBLIC_AGENT_NAME} task failed.`)
     }
   }
 
-  throw new Error("OpenClaw task timed out.")
+  throw new Error(`${PUBLIC_AGENT_NAME} task timed out.`)
 }
 
 export async function callApimartImage(message: string, attachments: ClientAttachment[] = []): Promise<ProviderResult> {

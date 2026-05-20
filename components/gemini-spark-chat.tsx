@@ -153,7 +153,7 @@ const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY = "gemini-spark:chat-sessions:v1"
 const AGENT_API_BASE_PATH = "/api/gemini-spark"
 const WELCOME_MESSAGE =
-  "Sign in to initialize your OpenClaw workspace, then send text, image, or video tasks through the agent."
+  "Sign in to initialize your Gemini Spark workspace, then send text, image, or video tasks through the agent."
 
 const quickPrompts = [
   "Create a cinematic product video from this idea.",
@@ -162,10 +162,10 @@ const quickPrompts = [
 ]
 
 const thinkingLines = [
-  "Connecting to OpenClaw...",
+  "Connecting to Gemini Spark...",
   "Reading the workspace context...",
   "Checking whether this should be text, image, or video...",
-  "Preparing the OpenClaw run...",
+  "Preparing the Gemini Spark run...",
   "Selecting the safest tool path...",
   "Inspecting attached media and prompt intent...",
   "Separating planning work from generation work...",
@@ -200,6 +200,10 @@ function latestTaskEvent(task: AgentTask) {
   return task.events?.[task.events.length - 1]
 }
 
+function displayBrandText(value: string) {
+  return value.replace(/\bOpenClaw\b/g, AGENT_BRAND)
+}
+
 function taskToAgentResponse(task: AgentTask): AgentResponse {
   const textArtifact = task.artifacts?.find((artifact) => artifact.kind === "text" && artifact.text)
   const message =
@@ -213,7 +217,7 @@ function taskToAgentResponse(task: AgentTask): AgentResponse {
     intent: task.intent,
     provider: task.provider || AGENT_BRAND,
     model: task.model || AGENT_BRAND,
-    message,
+    message: displayBrandText(message),
     taskId: task.id,
     media: task.media,
   }
@@ -297,11 +301,11 @@ function WorkspaceInitializationPanel({
           </span>
           <div>
             <p className="text-sm font-semibold text-foreground">
-              {failed ? "OpenClaw workspace needs attention" : "Initializing OpenClaw workspace"}
+              {failed ? "Gemini Spark workspace needs attention" : "Initializing Gemini Spark workspace"}
             </p>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
               {failed
-                ? workspace?.error || error || "The workspace could not be initialized. Retry before sending a message."
+                ? displayBrandText(workspace?.error || error || "The workspace could not be initialized. Retry before sending a message.")
                 : "Preparing an isolated VPS workspace and connecting the agent runtime before chat starts."}
             </p>
           </div>
@@ -353,7 +357,7 @@ function OpenClawActivity({
       <div className="mb-2 flex flex-wrap items-center gap-2 text-foreground">
         <span className="inline-flex items-center gap-1.5 font-semibold">
           <Terminal className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-          OpenClaw Activity
+          Gemini Spark Activity
         </span>
         {workspaceId && (
           <span className="rounded-full border border-border bg-card px-2 py-0.5 text-muted-foreground">
@@ -366,14 +370,14 @@ function OpenClawActivity({
           </span>
         )}
       </div>
-      {latest && <p className="mb-2 text-muted-foreground">{latest.message}</p>}
+      {latest && <p className="mb-2 text-muted-foreground">{displayBrandText(latest.message)}</p>}
       {activity.length > 0 && (
         <div className="grid gap-1.5">
           {activity.map((event) => (
             <div key={event.id} className="flex items-center gap-2 text-muted-foreground">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
               <span className="shrink-0 text-foreground/80">{activityLabel(event.type)}</span>
-              <span className="min-w-0 truncate">{event.message}</span>
+              <span className="min-w-0 truncate">{displayBrandText(event.message)}</span>
             </div>
           ))}
         </div>
@@ -965,7 +969,7 @@ export function GeminiSparkChat() {
       setAccount(nextAccount)
       return nextAccount
     } catch (error) {
-      const message = error instanceof Error ? error.message : "OpenClaw workspace initialization failed."
+      const message = displayBrandText(error instanceof Error ? error.message : "Gemini Spark workspace initialization failed.")
       setAccount(null)
       setBootstrapError(message)
       throw error
@@ -1066,7 +1070,7 @@ export function GeminiSparkChat() {
       .catch((error) => {
         if (!cancelled) {
           setAccount(null)
-          setBootstrapError(error instanceof Error ? error.message : "OpenClaw workspace initialization failed.")
+          setBootstrapError(displayBrandText(error instanceof Error ? error.message : "Gemini Spark workspace initialization failed."))
         }
       })
 
@@ -1264,7 +1268,7 @@ export function GeminiSparkChat() {
                     message.id === thinkingMessage.id
                       ? {
                           ...message,
-                          body: isDone || isError ? agentData.message : pendingMessage,
+                          body: isDone || isError ? agentData.message : displayBrandText(pendingMessage),
                           status: isDone ? ("done" as const) : isError ? ("error" as const) : ("thinking" as const),
                           provider: isDone ? agentData.provider : undefined,
                           model: isDone ? agentData.model : undefined,
@@ -1293,7 +1297,7 @@ export function GeminiSparkChat() {
         throw new Error(completedTask.error || completedTask.message || "Gemini Spark task did not complete.")
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Agent request failed."
+      const message = displayBrandText(error instanceof Error ? error.message : "Agent request failed.")
 
       setChatState((current) => {
         const nextSessions = current.sessions.map((session) =>
@@ -1448,7 +1452,7 @@ export function GeminiSparkChat() {
                 </div>
               </div>
               <span className="hidden rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent sm:block">
-                {isWorkspaceReady ? "OpenClaw ready" : "OpenClaw"}
+                {isWorkspaceReady ? "Gemini Spark ready" : "Gemini Spark"}
               </span>
             </div>
             {isWorkspaceBlocked && (
@@ -1619,8 +1623,8 @@ export function GeminiSparkChat() {
                     !isSignedIn
                       ? "Sign in to chat with Gemini Spark..."
                       : isWorkspaceReady
-                        ? "Talk to OpenClaw. Ask for text, image, or video work..."
-                        : "OpenClaw workspace is initializing..."
+                        ? "Talk to Gemini Spark. Ask for text, image, or video work..."
+                        : "Gemini Spark workspace is initializing..."
                   }
                   aria-label="Message Gemini Spark"
                   disabled={isThinking || !isSignedIn || !isWorkspaceReady}

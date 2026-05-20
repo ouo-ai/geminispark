@@ -158,7 +158,7 @@ export function buildServer() {
         error: workspace?.error || null,
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "OpenClaw workspace initialization failed."
+      const message = error instanceof Error ? error.message.replace(/\bOpenClaw\b/g, "Gemini Spark") : "Gemini Spark workspace initialization failed."
       return reply.code(502).send({
         provider: "openclaw",
         status: "failed",

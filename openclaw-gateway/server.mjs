@@ -262,7 +262,7 @@ async function callOpenRouter(payload) {
       Authorization: `Bearer ${OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
       "HTTP-Referer": SITE_URL,
-      "X-OpenRouter-Title": "Gemini Spark OpenClaw Gateway",
+      "X-OpenRouter-Title": "Gemini Spark Gateway",
     },
     body: JSON.stringify({
       model: payload.model || OPENCLAW_DEFAULT_MODEL,
@@ -272,7 +272,7 @@ async function callOpenRouter(payload) {
         {
           role: "system",
           content:
-            "You are OpenClaw running inside an isolated user workspace. Complete the user's task clearly, keep outputs actionable, and do not expose hidden reasoning.",
+            "You are Gemini Spark, an agent running inside an isolated user workspace. Never describe yourself as OpenClaw to the user. Complete the user's task clearly, keep outputs actionable, and do not expose hidden reasoning.",
         },
         ...normalizeHistory(payload.history),
         {
@@ -285,7 +285,7 @@ async function callOpenRouter(payload) {
 
   const body = await parseProviderResponse(response)
   return {
-    message: body?.choices?.[0]?.message?.content || "OpenClaw returned an empty response.",
+    message: body?.choices?.[0]?.message?.content || "Gemini Spark returned an empty response.",
     model: body?.model || payload.model || OPENCLAW_DEFAULT_MODEL,
   }
 }
@@ -413,17 +413,17 @@ async function callEggVideo(intent, payload) {
 async function executeRun(run, payload) {
   try {
     const intent = normalizeIntent(payload.intent)
-    await addEvent(run, "workspace_ready", "OpenClaw workspace is ready.", {
+    await addEvent(run, "workspace_ready", "Gemini Spark workspace is ready.", {
       workspaceId: run.workspaceId,
       progress: 15,
     })
-    await addEvent(run, "model_selected", "OpenClaw selected Claude Opus 4.7.", {
+    await addEvent(run, "model_selected", "Gemini Spark selected Claude Opus 4.7.", {
       model: payload.model || OPENCLAW_DEFAULT_MODEL,
       progress: 20,
     })
 
     if (intent === "text") {
-      await addEvent(run, "tool_selected", "OpenClaw selected the text reasoning tool.", {
+      await addEvent(run, "tool_selected", "Gemini Spark selected the text reasoning tool.", {
         tool: "openrouter_chat",
         progress: 30,
       })
@@ -433,13 +433,13 @@ async function executeRun(run, payload) {
       run.message = result.message
       run.model = result.model
       run.artifacts = [{ type: "text", text: run.message }]
-      await addEvent(run, "completed", "OpenClaw completed the response.", { progress: 100 })
+      await addEvent(run, "completed", "Gemini Spark completed the response.", { progress: 100 })
     } else if (intent === "image") {
-      await addEvent(run, "tool_selected", "OpenClaw selected the image generation tool.", {
+      await addEvent(run, "tool_selected", "Gemini Spark selected the image generation tool.", {
         tool: "apimart_image",
         progress: 30,
       })
-      await addEvent(run, "provider_submitted", "OpenClaw submitted the image job.", {
+      await addEvent(run, "provider_submitted", "Gemini Spark submitted the image job.", {
         provider: "APIMart",
         progress: 45,
       })
@@ -450,27 +450,27 @@ async function executeRun(run, payload) {
 
       run.status = "succeeded"
       run.intent = intent
-      run.message = "OpenClaw generated an image artifact."
+      run.message = "Gemini Spark generated an image artifact."
       run.model = APIMART_IMAGE_MODEL
       run.providerTaskId = result.providerTaskId || undefined
       run.artifacts = [
         { type: "text", text: run.message },
         ...result.urls.map((url) => ({ type: "image", url })),
       ]
-      await addEvent(run, "artifact_ready", "OpenClaw received the image artifact.", {
+      await addEvent(run, "artifact_ready", "Gemini Spark received the image artifact.", {
         provider: "APIMart",
         providerTaskId: result.providerTaskId || undefined,
         artifactType: "image",
         artifactUrl: result.urls[0],
         progress: 90,
       })
-      await addEvent(run, "completed", "OpenClaw completed the image task.", { progress: 100 })
+      await addEvent(run, "completed", "Gemini Spark completed the image task.", { progress: 100 })
     } else {
-      await addEvent(run, "tool_selected", "OpenClaw selected the video generation tool.", {
+      await addEvent(run, "tool_selected", "Gemini Spark selected the video generation tool.", {
         tool: intent === "image-to-video" ? "eggapi_image_to_video" : "eggapi_text_to_video",
         progress: 30,
       })
-      await addEvent(run, "provider_submitted", "OpenClaw submitted the video job.", {
+      await addEvent(run, "provider_submitted", "Gemini Spark submitted the video job.", {
         provider: "EggAPI",
         progress: 45,
       })
@@ -481,21 +481,21 @@ async function executeRun(run, payload) {
 
       run.status = "succeeded"
       run.intent = intent
-      run.message = "OpenClaw generated a video artifact."
+      run.message = "Gemini Spark generated a video artifact."
       run.model = intent === "image-to-video" ? EGG_IMAGE_TO_VIDEO_MODEL : EGG_TEXT_TO_VIDEO_MODEL
       run.providerTaskId = result.providerTaskId || undefined
       run.artifacts = [
         { type: "text", text: run.message },
         ...result.urls.map((url) => ({ type: "video", url })),
       ]
-      await addEvent(run, "artifact_ready", "OpenClaw received the video artifact.", {
+      await addEvent(run, "artifact_ready", "Gemini Spark received the video artifact.", {
         provider: "EggAPI",
         providerTaskId: result.providerTaskId || undefined,
         artifactType: "video",
         artifactUrl: result.urls[0],
         progress: 90,
       })
-      await addEvent(run, "completed", "OpenClaw completed the video task.", { progress: 100 })
+      await addEvent(run, "completed", "Gemini Spark completed the video task.", { progress: 100 })
     }
 
     run.finishedAt = new Date().toISOString()
@@ -503,7 +503,7 @@ async function executeRun(run, payload) {
     await saveRun(run)
   } catch (error) {
     run.status = "failed"
-    run.error = error instanceof Error ? error.message : "OpenClaw run failed."
+    run.error = error instanceof Error ? error.message.replace(/\bOpenClaw\b/g, "Gemini Spark") : "Gemini Spark run failed."
     run.finishedAt = new Date().toISOString()
     run.updatedAt = run.finishedAt
     await addEvent(run, "failed", run.error, { progress: 100 })
@@ -558,7 +558,7 @@ const server = createServer(async (request, response) => {
           {
             id: randomUUID(),
             type: "run_created",
-            message: "OpenClaw run created.",
+            message: "Gemini Spark run created.",
             data: { intent: normalizeIntent(body.intent), workspaceId, progress: 10 },
             createdAt: new Date().toISOString(),
           },
@@ -596,5 +596,5 @@ const server = createServer(async (request, response) => {
 })
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Gemini Spark OpenClaw Gateway listening on ${PORT}`)
+  console.log(`Gemini Spark Gateway listening on ${PORT}`)
 })

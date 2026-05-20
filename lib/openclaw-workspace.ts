@@ -10,7 +10,7 @@ function gatewayUrl() {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "OpenClaw workspace initialization failed."
+  return error instanceof Error ? error.message.replace(/\bOpenClaw\b/g, "Gemini Spark") : "Gemini Spark workspace initialization failed."
 }
 
 async function parseGatewayResponse(response: Response) {
@@ -83,7 +83,7 @@ export async function ensureOpenClawWorkspaceDirect(userId: string) {
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : typeof body.id === "string" ? body.id : ""
 
     if (!workspaceId) {
-      throw new Error("OpenClaw Gateway did not return a workspace id.")
+      throw new Error("Gemini Spark Gateway did not return a workspace id.")
     }
 
     await prisma.userWorkspace.upsert({
