@@ -1,6 +1,7 @@
 "use client"
 
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -2041,12 +2042,19 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 isSessionPanelCollapsed && "lg:justify-center lg:px-0",
               )}
             >
-              <div className={cn("flex min-w-0 items-center gap-2", isSessionPanelCollapsed && "lg:hidden")}>
+              <Link
+                href="/"
+                aria-label="Back to Gemini Spark home"
+                className={cn(
+                  "flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45",
+                  isSessionPanelCollapsed && "lg:hidden",
+                )}
+              >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
                   <Sparkles className="h-4 w-4" aria-hidden="true" />
                 </span>
                 <span className="truncate text-sm font-semibold text-foreground">Gemini Spark</span>
-              </div>
+              </Link>
               <Button
                 type="button"
                 size="icon-sm"
