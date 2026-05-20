@@ -29,6 +29,7 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -1259,6 +1260,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [projectActionError, setProjectActionError] = useState("")
   const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false)
+  const [projectNameDraft, setProjectNameDraft] = useState("")
+  const [projectNameError, setProjectNameError] = useState("")
   const [isCreatingThread, setIsCreatingThread] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
@@ -1715,9 +1719,33 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     }
   }
 
-  async function startNewProject() {
+  function openNewProjectDialog() {
     if (!isSignedIn) {
       signInWithGoogle()
+      return
+    }
+
+    if (isCreatingProject || !account) {
+      return
+    }
+
+    setProjectActionError("")
+    setProjectNameError("")
+    setProjectNameDraft("")
+    setProjectDialogOpen(true)
+  }
+
+  async function submitNewProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!isSignedIn) {
+      signInWithGoogle()
+      return
+    }
+
+    const projectName = projectNameDraft.replace(/\s+/g, " ").trim()
+    if (!projectName) {
+      setProjectNameError("Enter a project name.")
       return
     }
 
@@ -1727,10 +1755,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
     setIsCreatingProject(true)
     setProjectActionError("")
+    setProjectNameError("")
 
     try {
-      const projectNumber = (account?.projects.length || 0) + 1
-      const { project, thread } = await createProjectRequest(`Project ${projectNumber}`)
+      const { project, thread } = await createProjectRequest(projectName)
       const nextWorkspace = {
         provider: "openclaw",
         status: project.status,
@@ -1758,10 +1786,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       setDraft("")
       setAttachments([])
       setAttachmentError("")
+      setProjectDialogOpen(false)
+      setProjectNameDraft("")
       updateChatThreadUrl(thread.id)
       void refreshAccount(project.id, thread.id).catch(() => undefined)
     } catch (error) {
-      setProjectActionError(error instanceof Error ? error.message : "Project could not be created.")
+      setProjectNameError(error instanceof Error ? error.message : "Project could not be created.")
     } finally {
       setIsCreatingProject(false)
     }
@@ -2082,7 +2112,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 rounded="lg"
                 className="mb-3 bg-transparent lg:size-11"
                 type="button"
-                onClick={() => void startNewProject()}
+                onClick={openNewProjectDialog}
                 title="New project"
                 disabled={isCreatingProject || !isSignedIn || !account}
               >
@@ -2096,7 +2126,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   </p>
                   <button
                     type="button"
-                    onClick={() => void startNewProject()}
+                    onClick={openNewProjectDialog}
                     disabled={isCreatingProject || !isSignedIn || !account}
                     className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
                   >
@@ -2647,6 +2677,54 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
           </div>
 
       </div>
+      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+        <DialogContent className="max-w-md border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>New project</DialogTitle>
+            <DialogDescription>
+              Create a focused Gemini Spark project with its own workspace and chat threads.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="grid gap-4" onSubmit={submitNewProject}>
+            <div className="grid gap-2">
+              <label htmlFor="gemini-spark-project-name" className="text-sm font-medium text-foreground">
+                Project name
+              </label>
+              <Input
+                id="gemini-spark-project-name"
+                value={projectNameDraft}
+                onChange={(event) => {
+                  setProjectNameDraft(event.target.value)
+                  setProjectNameError("")
+                }}
+                placeholder="Website launch, product research..."
+                maxLength={80}
+                autoFocus
+                disabled={isCreatingProject}
+              />
+              {projectNameError && <p className="text-sm text-destructive">{displayBrandText(projectNameError)}</p>}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                rounded="lg"
+                className="bg-transparent"
+                onClick={() => setProjectDialogOpen(false)}
+                disabled={isCreatingProject}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" rounded="lg" className="gap-2" disabled={isCreatingProject || !projectNameDraft.trim()}>
+                {isCreatingProject ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+                Create project
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
         <DialogContent className="max-w-2xl border-border bg-card">
           <DialogHeader>
