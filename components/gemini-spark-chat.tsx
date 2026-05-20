@@ -1,7 +1,6 @@
 "use client"
 
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -192,6 +191,7 @@ const MAX_PERSISTED_MESSAGES = 120
 const MAX_PERSISTED_EVENTS = 80
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY_PREFIX = "gemini-spark:chat-sessions:v2"
+const SESSION_PANEL_COLLAPSED_KEY = "gemini-spark:session-panel-collapsed:v1"
 const CHAT_STORAGE_VERSION = 2
 const AGENT_API_BASE_PATH = "/api/gemini-spark"
 const WELCOME_MESSAGE =
@@ -257,6 +257,54 @@ function isCurrentThreadUrl(threadId: string) {
   }
 
   return window.location.pathname === `/gemini-spark/t/${encodeURIComponent(threadId)}`
+}
+
+function currentThreadIdFromPath() {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const match = window.location.pathname.match(/^\/gemini-spark\/t\/([^/?#]+)/)
+  if (!match?.[1]) {
+    return null
+  }
+
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+function updateChatThreadUrl(threadId: string, mode: "push" | "replace" = "push") {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  const nextPath = chatThreadPath(threadId, false)
+  if (window.location.pathname === nextPath) {
+    return
+  }
+
+  const nextState = {
+    ...window.history.state,
+    geminiSparkThreadId: threadId,
+  }
+
+  if (mode === "replace") {
+    window.history.replaceState(nextState, "", nextPath)
+    return
+  }
+
+  window.history.pushState(nextState, "", nextPath)
+}
+
+function readSessionPanelCollapsed() {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  return window.localStorage.getItem(SESSION_PANEL_COLLAPSED_KEY) === "true"
 }
 
 async function readJsonBody<T extends object>(response: Response, fallbackError: string): Promise<T & { error?: string }> {
@@ -1193,11 +1241,10 @@ function MarkdownMessage({ content, isUser }: { content: string; isUser: boolean
 }
 
 export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string } = {}) {
-  const router = useRouter()
   const { data: session, isPending: isSessionPending } = authClient.useSession()
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
-  const [isSessionPanelCollapsed, setIsSessionPanelCollapsed] = useState(true)
+  const [isSessionPanelCollapsed, setIsSessionPanelCollapsed] = useState(readSessionPanelCollapsed)
   const [isThinking, setIsThinking] = useState(false)
   const [isStorageReady, setIsStorageReady] = useState(false)
   const [thinkingIndex, setThinkingIndex] = useState(0)
@@ -1387,8 +1434,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       const applied = applyUrlPromptToChatState(nextChatState, prompt)
       nextChatState = applied.chatState
       nextDraft = applied.draft
-      if (initialThreadId) {
-        window.history.replaceState(null, "", window.location.pathname)
+      if (account?.activeThread.id) {
+        updateChatThreadUrl(account.activeThread.id, "replace")
+      } else {
+        window.history.replaceState(window.history.state, "", window.location.pathname)
       }
     }
 
@@ -1420,6 +1469,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       window.history.replaceState(null, "", window.location.pathname)
     }
   }, [initialThreadId])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    window.localStorage.setItem(SESSION_PANEL_COLLAPSED_KEY, String(isSessionPanelCollapsed))
+  }, [isSessionPanelCollapsed])
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -1463,9 +1520,39 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     const shouldCanonicalize = !initialThreadId || initialThreadId !== activeThreadId
 
     if (shouldCanonicalize && !isCurrentThreadUrl(activeThreadId)) {
-      router.replace(chatThreadPath(activeThreadId))
+      updateChatThreadUrl(activeThreadId, "replace")
     }
-  }, [account?.activeThread.id, initialThreadId, isSignedIn, router])
+  }, [account?.activeThread.id, initialThreadId, isSignedIn])
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      return
+    }
+
+    function handlePopState() {
+      const threadId = currentThreadIdFromPath()
+      if (!threadId || threadId === activeSession.id) {
+        return
+      }
+
+      setProjectActionError("")
+      setBootstrapError("")
+      setIsStorageReady(false)
+      void fetchAccountBootstrap(null, threadId)
+        .then((nextAccount) => {
+          setAccount(nextAccount)
+          setActiveProjectId(nextAccount.activeProject.id)
+          setBootstrapError("")
+        })
+        .catch((error) => {
+          setAccount(null)
+          setBootstrapError(displayBrandText(error instanceof Error ? error.message : "Gemini Spark workspace initialization failed."))
+        })
+    }
+
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [activeSession.id, isSignedIn])
 
   useEffect(() => {
     if (!activeProjectId && account?.activeProject.id) {
@@ -1619,7 +1706,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       setDraft("")
       setAttachments([])
       setAttachmentError("")
-      router.push(chatThreadPath(thread.id, false))
+      updateChatThreadUrl(thread.id)
     } catch (error) {
       setProjectActionError(error instanceof Error ? error.message : "Chat could not be created.")
     } finally {
@@ -1670,7 +1757,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       setDraft("")
       setAttachments([])
       setAttachmentError("")
-      router.push(chatThreadPath(thread.id, false))
+      updateChatThreadUrl(thread.id)
       void refreshAccount(project.id, thread.id).catch(() => undefined)
     } catch (error) {
       setProjectActionError(error instanceof Error ? error.message : "Project could not be created.")
@@ -1690,7 +1777,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setIsStorageReady(false)
     void refreshAccount(projectId, null)
       .then((nextAccount) => {
-        router.push(chatThreadPath(nextAccount.activeThread.id, false))
+        updateChatThreadUrl(nextAccount.activeThread.id)
       })
       .catch(() => undefined)
   }
@@ -1698,7 +1785,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   function selectChatThread(threadId: string) {
     setProjectActionError("")
     if (!isCurrentThreadUrl(threadId)) {
-      router.push(chatThreadPath(threadId, false))
+      updateChatThreadUrl(threadId)
     }
     setChatState((current) => ({
       ...current,
