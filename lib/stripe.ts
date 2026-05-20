@@ -53,7 +53,7 @@ export function parseCheckoutInterval(value: unknown): BillingInterval {
   return value
 }
 
-async function findStripePriceIdByLookupKey(lookupKey: string, envName: string) {
+async function findStripePriceIdByLookupKey(lookupKey: string) {
   const cached = priceIdLookupCache.get(lookupKey)
   if (cached) {
     return cached
@@ -66,7 +66,7 @@ async function findStripePriceIdByLookupKey(lookupKey: string, envName: string) 
   })
   const priceId = prices.data[0]?.id
   if (!priceId) {
-    throw new Error(`${envName} is not configured and no active Stripe price was found for lookup key ${lookupKey}.`)
+    return null
   }
 
   priceIdLookupCache.set(lookupKey, priceId)
@@ -75,22 +75,32 @@ async function findStripePriceIdByLookupKey(lookupKey: string, envName: string) 
 
 export async function getStripePriceId(plan: PaidPlan, interval: BillingInterval) {
   const envName = stripePriceEnvName(plan, interval)
-  const priceId = process.env[envName]
+  const priceId = await findStripePriceIdByLookupKey(stripePriceLookupKey(plan, interval))
   if (priceId) {
     return priceId
   }
 
-  return findStripePriceIdByLookupKey(stripePriceLookupKey(plan, interval), envName)
+  const fallbackPriceId = process.env[envName]
+  if (fallbackPriceId) {
+    return fallbackPriceId
+  }
+
+  throw new Error(`${envName} is not configured and no active Stripe price was found for lookup key ${stripePriceLookupKey(plan, interval)}.`)
 }
 
 export async function getStripeCreditPackPriceId(pack: CreditPack) {
   const envName = stripeCreditPackPriceEnvName(pack)
-  const priceId = process.env[envName]
+  const priceId = await findStripePriceIdByLookupKey(stripeCreditPackPriceLookupKey(pack))
   if (priceId) {
     return priceId
   }
 
-  return findStripePriceIdByLookupKey(stripeCreditPackPriceLookupKey(pack), envName)
+  const fallbackPriceId = process.env[envName]
+  if (fallbackPriceId) {
+    return fallbackPriceId
+  }
+
+  throw new Error(`${envName} is not configured and no active Stripe price was found for lookup key ${stripeCreditPackPriceLookupKey(pack)}.`)
 }
 
 export function paidPlanFromPriceId(priceId: string | null | undefined): PaidPlan | null {

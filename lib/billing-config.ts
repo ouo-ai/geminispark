@@ -11,8 +11,8 @@ export const BILLING_PLANS = {
   STARTUP: {
     label: "Startup",
     monthlyCredits: 1000,
-    monthlyPriceUsd: 100,
-    yearlyPriceUsd: 1000,
+    monthlyPriceUsd: 39,
+    yearlyPriceUsd: 390,
   },
   PRO: {
     label: "Pro",

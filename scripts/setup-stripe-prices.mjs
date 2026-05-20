@@ -11,7 +11,7 @@ const PRICE_CONFIGS = [
     productName: "GeminiSpark Startup",
     productKey: "STARTUP",
     metadata: { plan: "STARTUP", interval: "month" },
-    unitAmount: 10000,
+    unitAmount: 3900,
     interval: "month",
   },
   {
@@ -20,7 +20,7 @@ const PRICE_CONFIGS = [
     productName: "GeminiSpark Startup",
     productKey: "STARTUP",
     metadata: { plan: "STARTUP", interval: "year" },
-    unitAmount: 100000,
+    unitAmount: 39000,
     interval: "year",
   },
   {
@@ -130,6 +130,13 @@ async function findPriceByLookupKey(stripe, lookupKey) {
   return prices.data[0] || null
 }
 
+function priceMatchesConfig(price, config) {
+  const priceInterval = price.recurring?.interval || null
+  const configInterval = config.interval || null
+
+  return price.currency === "usd" && price.unit_amount === config.unitAmount && priceInterval === configInterval
+}
+
 async function ensureProduct(stripe, productsByPlan, config) {
   if (productsByPlan.has(config.productKey)) {
     return productsByPlan.get(config.productKey)
@@ -159,16 +166,24 @@ async function main() {
   for (const config of PRICE_CONFIGS) {
     const existing = await findPriceByLookupKey(stripe, config.lookupKey)
     if (existing) {
-      envUpdates[config.envKey] = existing.id
       productsByPlan.set(config.productKey, typeof existing.product === "string" ? existing.product : existing.product.id)
-      console.log(`${config.envKey}: reused ${existing.id}`)
-      continue
+      if (priceMatchesConfig(existing, config)) {
+        envUpdates[config.envKey] = existing.id
+        console.log(`${config.envKey}: reused ${existing.id}`)
+        continue
+      }
+
+      console.log(`${config.envKey}: replacing ${existing.id} because amount or interval changed`)
     }
 
-    const productId = await ensureProduct(stripe, productsByPlan, config)
+    const productId =
+      existing && typeof existing.product === "string"
+        ? existing.product
+        : existing?.product?.id || (await ensureProduct(stripe, productsByPlan, config))
     const priceConfig = {
       currency: "usd",
       lookup_key: config.lookupKey,
+      transfer_lookup_key: Boolean(existing),
       product: productId,
       unit_amount: config.unitAmount,
       metadata: {
