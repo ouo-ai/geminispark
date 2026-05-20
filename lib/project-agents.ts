@@ -83,7 +83,7 @@ export async function ensureUserProfile(userId: string) {
 }
 
 export async function ensureDefaultProjectBundle(userId: string, requestedProjectId?: string | null, requestedThreadId?: string | null) {
-  const [profile, initialProjects] = await Promise.all([
+  const [profile, initialProjects, requestedThread] = await Promise.all([
     ensureUserProfile(userId),
     prisma.projectAgent.findMany({
       where: {
@@ -92,6 +92,21 @@ export async function ensureDefaultProjectBundle(userId: string, requestedProjec
       },
       orderBy: [{ updatedAt: "desc" }, { createdAt: "asc" }],
     }),
+    requestedThreadId
+      ? prisma.chatThread.findFirst({
+          where: {
+            id: requestedThreadId,
+            userId,
+            archivedAt: null,
+            projectAgent: {
+              archivedAt: null,
+            },
+          },
+          include: {
+            projectAgent: true,
+          },
+        })
+      : Promise.resolve(null),
   ])
   let projects = initialProjects
 
@@ -115,7 +130,12 @@ export async function ensureDefaultProjectBundle(userId: string, requestedProjec
     projects = [created]
   }
 
+  if (requestedThread?.projectAgent && !projects.some((project) => project.id === requestedThread.projectAgentId)) {
+    projects = [requestedThread.projectAgent, ...projects]
+  }
+
   const activeProject =
+    requestedThread?.projectAgent ||
     (requestedProjectId && projects.find((project) => project.id === requestedProjectId)) || projects[0]
 
   let threads = await prisma.chatThread.findMany({

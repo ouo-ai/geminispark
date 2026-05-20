@@ -1,6 +1,7 @@
 "use client"
 
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -236,6 +237,26 @@ function wait(ms: number) {
 
 function agentApiUrl(path: string) {
   return `${AGENT_API_BASE_PATH}${path}`
+}
+
+function currentUrlSearch() {
+  if (typeof window === "undefined") {
+    return ""
+  }
+
+  return window.location.search
+}
+
+function chatThreadPath(threadId: string, keepCurrentSearch = true) {
+  return `/gemini-spark/t/${encodeURIComponent(threadId)}${keepCurrentSearch ? currentUrlSearch() : ""}`
+}
+
+function isCurrentThreadUrl(threadId: string) {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  return window.location.pathname === `/gemini-spark/t/${encodeURIComponent(threadId)}`
 }
 
 async function readJsonBody<T extends object>(response: Response, fallbackError: string): Promise<T & { error?: string }> {
@@ -1139,7 +1160,8 @@ function MarkdownMessage({ content, isUser }: { content: string; isUser: boolean
   )
 }
 
-export function GeminiSparkChat() {
+export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string } = {}) {
+  const router = useRouter()
   const { data: session, isPending: isSessionPending } = authClient.useSession()
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
@@ -1207,7 +1229,7 @@ export function GeminiSparkChat() {
   function signInWithGoogle() {
     void authClient.signIn.social({
       provider: "google",
-      callbackURL: "/gemini-spark",
+      callbackURL: initialThreadId ? chatThreadPath(initialThreadId) : `/gemini-spark${currentUrlSearch()}`,
     })
   }
 
@@ -1325,7 +1347,9 @@ export function GeminiSparkChat() {
       const applied = applyUrlPromptToChatState(nextChatState, prompt)
       nextChatState = applied.chatState
       nextDraft = applied.draft
-      window.history.replaceState(null, "", window.location.pathname)
+      if (initialThreadId) {
+        window.history.replaceState(null, "", window.location.pathname)
+      }
     }
 
     setChatState(nextChatState)
@@ -1341,20 +1365,36 @@ export function GeminiSparkChat() {
     loadedStorageKey,
     account?.activeThread.id,
     account?.messages,
+    initialThreadId,
     ownerStorageKey,
     projectThreads,
   ])
 
   useEffect(() => {
+    if (!initialThreadId || typeof window === "undefined" || !hasLoadedUrlPromptRef.current) {
+      return
+    }
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.has("prompt")) {
+      window.history.replaceState(null, "", window.location.pathname)
+    }
+  }, [initialThreadId])
+
+  useEffect(() => {
     if (!isSignedIn) {
       setAccount(null)
       setBootstrapError("")
+      setIsStorageReady(false)
+      setLoadedStorageKey(null)
       return
     }
 
     let cancelled = false
     setBootstrapError("")
-    fetchAccountBootstrap()
+    setIsStorageReady(false)
+    setLoadedStorageKey(null)
+    fetchAccountBootstrap(null, initialThreadId)
       .then((nextAccount) => {
         if (!cancelled) {
           setAccount(nextAccount)
@@ -1372,7 +1412,20 @@ export function GeminiSparkChat() {
     return () => {
       cancelled = true
     }
-  }, [isSignedIn, session?.user.id])
+  }, [initialThreadId, isSignedIn, session?.user.id])
+
+  useEffect(() => {
+    if (!isSignedIn || !account?.activeThread.id) {
+      return
+    }
+
+    const activeThreadId = account.activeThread.id
+    const shouldCanonicalize = !initialThreadId || initialThreadId !== activeThreadId
+
+    if (shouldCanonicalize && !isCurrentThreadUrl(activeThreadId)) {
+      router.replace(chatThreadPath(activeThreadId))
+    }
+  }, [account?.activeThread.id, initialThreadId, isSignedIn, router])
 
   useEffect(() => {
     if (!activeProjectId && account?.activeProject.id) {
@@ -1526,6 +1579,7 @@ export function GeminiSparkChat() {
       setDraft("")
       setAttachments([])
       setAttachmentError("")
+      router.push(chatThreadPath(thread.id, false))
     } catch (error) {
       setProjectActionError(error instanceof Error ? error.message : "Chat could not be created.")
     } finally {
@@ -1576,6 +1630,7 @@ export function GeminiSparkChat() {
       setDraft("")
       setAttachments([])
       setAttachmentError("")
+      router.push(chatThreadPath(thread.id, false))
       void refreshAccount(project.id, thread.id).catch(() => undefined)
     } catch (error) {
       setProjectActionError(error instanceof Error ? error.message : "Project could not be created.")
@@ -1593,11 +1648,18 @@ export function GeminiSparkChat() {
     setProjectActionError("")
     setBootstrapError("")
     setIsStorageReady(false)
-    void refreshAccount(projectId, null).catch(() => undefined)
+    void refreshAccount(projectId, null)
+      .then((nextAccount) => {
+        router.push(chatThreadPath(nextAccount.activeThread.id, false))
+      })
+      .catch(() => undefined)
   }
 
   function selectChatThread(threadId: string) {
     setProjectActionError("")
+    if (!isCurrentThreadUrl(threadId)) {
+      router.push(chatThreadPath(threadId, false))
+    }
     setChatState((current) => ({
       ...current,
       activeSessionId: threadId,
@@ -1878,83 +1940,112 @@ export function GeminiSparkChat() {
               </Button>
             </div>
 
-            <Button
-              size={isSessionPanelCollapsed ? "icon" : "sm"}
-              variant={isSessionPanelCollapsed ? "ghost" : "secondary"}
-              rounded="lg"
-              className={cn("mb-3 bg-transparent", isSessionPanelCollapsed ? "lg:size-11" : "w-full justify-start")}
-              type="button"
-              onClick={() => void startNewProject()}
-              title="New project"
-              disabled={isCreatingProject || !isSignedIn}
-            >
-              {isCreatingProject ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
-              <span className={cn(isSessionPanelCollapsed && "lg:hidden")}>New project</span>
-            </Button>
-
-            <div className={cn("mb-4 grid gap-1.5", isSessionPanelCollapsed && "lg:w-11")}>
-              <p className={cn("px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground", isSessionPanelCollapsed && "lg:hidden")}>
-                Projects
-              </p>
-              {(account?.projects || []).map((project) => {
-                const isActive = activeProject?.id === project.id
-
-                return (
+            {isSessionPanelCollapsed ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                rounded="lg"
+                className="mb-3 bg-transparent lg:size-11"
+                type="button"
+                onClick={() => void startNewProject()}
+                title="New project"
+                disabled={isCreatingProject || !isSignedIn}
+              >
+                {isCreatingProject ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+              </Button>
+            ) : (
+              <div className="mb-4 rounded-2xl border border-primary/15 bg-primary/[0.035] p-2.5">
+                <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Projects
+                  </p>
                   <button
-                    key={project.id}
                     type="button"
-                    aria-pressed={isActive}
-                    title={isSessionPanelCollapsed ? project.name : undefined}
-                    onClick={() => switchProject(project.id)}
-                    className={cn(
-                      "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition",
-                      isSessionPanelCollapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
-                      isActive
-                        ? "border-primary/55 bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(66,133,244,0.18)]"
-                        : "border-transparent bg-background/35 text-muted-foreground hover:border-border hover:bg-background/75 hover:text-foreground",
-                    )}
+                    onClick={() => void startNewProject()}
+                    disabled={isCreatingProject || !isSignedIn}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
                   >
-                    <span
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md border",
-                        isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
-                      )}
-                    >
-                      <Bot className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className={cn("min-w-0", isSessionPanelCollapsed && "lg:hidden")}>
-                      <span className="block truncate text-sm font-semibold">{project.name}</span>
-                      <span className="mt-0.5 block truncate text-xs leading-5">
-                        {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
-                      </span>
-                    </span>
+                    {isCreatingProject ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+                    New
                   </button>
-                )
-              })}
-            </div>
+                </div>
 
-            <Button
-              size={isSessionPanelCollapsed ? "icon" : "sm"}
-              variant={isSessionPanelCollapsed ? "ghost" : "secondary"}
-              rounded="lg"
-              className={cn("mb-3 bg-transparent", isSessionPanelCollapsed ? "lg:size-11" : "w-full justify-start")}
-              type="button"
-              onClick={() => void startNewChat()}
-              title="New chat"
-              disabled={isCreatingThread || !isSignedIn || !activeProject}
-            >
-              {isCreatingThread ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
-              <span className={cn(isSessionPanelCollapsed && "lg:hidden")}>New chat</span>
-            </Button>
-            <p className={cn("mb-2 px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground", isSessionPanelCollapsed && "lg:hidden")}>
-              Chats
-            </p>
+                <div className="grid gap-1">
+                  {(account?.projects || []).map((project) => {
+                    const isActive = activeProject?.id === project.id
+
+                    return (
+                      <button
+                        key={project.id}
+                        type="button"
+                        aria-pressed={isActive}
+                        onClick={() => switchProject(project.id)}
+                        className={cn(
+                          "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition",
+                          isActive
+                            ? "border-primary/35 bg-background/82 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                            : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-background/55 hover:text-foreground",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-md border",
+                            isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
+                          )}
+                        >
+                          <Bot className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold leading-5">{project.name}</span>
+                          <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
+                            {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {isSessionPanelCollapsed ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                rounded="lg"
+                className="mb-3 bg-transparent lg:size-11"
+                type="button"
+                onClick={() => void startNewChat()}
+                title="New chat"
+                disabled={isCreatingThread || !isSignedIn || !activeProject}
+              >
+                {isCreatingThread ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+              </Button>
+            ) : (
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Chats
+                  </p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground/70">{activeProject?.name || "No project selected"}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void startNewChat()}
+                  disabled={isCreatingThread || !isSignedIn || !activeProject}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {isCreatingThread ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+                  New
+                </button>
+              </div>
+            )}
 
             <div
               id="gemini-spark-session-list"
               className={cn(
-                "grid min-h-0 flex-1 content-start gap-2 overflow-y-auto",
-                isSessionPanelCollapsed && "lg:w-11",
+                "grid min-h-0 flex-1 content-start gap-1 overflow-y-auto border-t border-border/60 pt-2",
+                isSessionPanelCollapsed && "lg:w-11 lg:border-t-0 lg:pt-0",
               )}
             >
               {chatState.sessions.map((session) => {
@@ -1969,26 +2060,26 @@ export function GeminiSparkChat() {
                     title={isSessionPanelCollapsed ? session.title : undefined}
                     onClick={() => selectChatThread(session.id)}
                     className={cn(
-                      "grid min-h-16 grid-cols-[36px_minmax(0,1fr)] items-center gap-3 rounded-lg border px-3 py-2 text-left transition lg:min-h-14",
+                      "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition",
                       isSessionPanelCollapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
                       isActive
-                        ? "border-primary/55 bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(66,133,244,0.2)]"
-                        : "border-transparent bg-background/40 text-muted-foreground hover:border-border hover:bg-background/75 hover:text-foreground",
+                        ? "border-primary/18 bg-primary/[0.055] text-foreground"
+                        : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-background/55 hover:text-foreground",
                     )}
                   >
                     <span
                       className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-md border",
+                        "flex h-8 w-8 items-center justify-center rounded-md border",
                         isActive
-                          ? "border-primary/35 bg-primary/15 text-primary"
+                          ? "border-primary/30 bg-primary/10 text-primary"
                           : "border-border bg-secondary text-muted-foreground",
                       )}
                     >
                       <SessionIcon className="h-4 w-4" aria-hidden="true" />
                     </span>
                     <span className={cn("min-w-0", isSessionPanelCollapsed && "lg:hidden")}>
-                      <span className="block truncate text-sm font-semibold">{session.title}</span>
-                      <span className="mt-1 block truncate text-xs leading-5">{sessionSubtitle(session)}</span>
+                      <span className="block truncate text-sm font-medium leading-5">{session.title}</span>
+                      <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{sessionSubtitle(session)}</span>
                     </span>
                   </button>
                 )
