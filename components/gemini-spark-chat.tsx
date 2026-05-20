@@ -201,7 +201,12 @@ function latestTaskEvent(task: AgentTask) {
 }
 
 function displayBrandText(value: string) {
-  return value.replace(/\bOpenClaw\b/g, AGENT_BRAND)
+  return value
+    .replace(/\bOpenClaw\b/g, AGENT_BRAND)
+    .replace(/anthropic\/claude[\w./-]*/gi, AGENT_BRAND)
+    .replace(/\bclaude[\w./-]*4\.7[\w./-]*\b/gi, AGENT_BRAND)
+    .replace(/\bclaude[\w./-]*opus[\w./-]*\b/gi, AGENT_BRAND)
+    .replace(/\bClaude\s+(?:Opus\s+)?4\.7(?:\s+Opus)?\b/gi, AGENT_BRAND)
 }
 
 function taskToAgentResponse(task: AgentTask): AgentResponse {
@@ -216,7 +221,7 @@ function taskToAgentResponse(task: AgentTask): AgentResponse {
   return {
     intent: task.intent,
     provider: task.provider || AGENT_BRAND,
-    model: task.model || AGENT_BRAND,
+    model: AGENT_BRAND,
     message: displayBrandText(message),
     taskId: task.id,
     media: task.media,

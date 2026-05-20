@@ -8,6 +8,7 @@ import { runProviderForIntent } from "./providers.js"
 import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult, TaskInput } from "./types.js"
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELED])
+const PUBLIC_AGENT_NAME = "Gemini Spark"
 
 export type CreateTaskParams = {
   message: string
@@ -24,6 +25,36 @@ function toJson(value: unknown) {
 
 function statusLabel(status: TaskStatus) {
   return status.toLowerCase() as "queued" | "running" | "succeeded" | "failed" | "canceled"
+}
+
+function publicAgentText(value: string) {
+  return value
+    .replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME)
+    .replace(/anthropic\/claude[\w./-]*/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bclaude[\w./-]*4\.7[\w./-]*\b/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bclaude[\w./-]*opus[\w./-]*\b/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bClaude\s+(?:Opus\s+)?4\.7(?:\s+Opus)?\b/gi, PUBLIC_AGENT_NAME)
+}
+
+function publicJsonValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return publicAgentText(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(publicJsonValue)
+  }
+
+  if (!value || typeof value !== "object") {
+    return value
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      key === "model" && typeof entry === "string" ? PUBLIC_AGENT_NAME : publicJsonValue(entry),
+    ]),
+  )
 }
 
 function artifactKindForMedia(type: "image" | "video") {
@@ -60,7 +91,7 @@ export function serializeTask(
 ) {
   const textArtifact = task.artifacts.find((artifact) => artifact.kind === ArtifactKind.TEXT && artifact.text)
   const result = task.result && typeof task.result === "object" ? (task.result as Record<string, unknown>) : {}
-  const message = typeof result.message === "string" ? result.message : textArtifact?.text || task.error || ""
+  const message = publicAgentText(typeof result.message === "string" ? result.message : textArtifact?.text || task.error || "")
 
   return {
     id: task.id,
@@ -70,25 +101,25 @@ export function serializeTask(
     status: statusLabel(task.status),
     progress: task.progress,
     provider: task.provider,
-    model: task.model,
+    model: task.model ? PUBLIC_AGENT_NAME : null,
     creditCost: task.creditCost,
     workspaceId: task.workspaceId,
     message,
-    error: task.error,
+    error: task.error ? publicAgentText(task.error) : task.error,
     media: inferMediaFromArtifacts(task.artifacts),
     artifacts: task.artifacts.map((artifact) => ({
       id: artifact.id,
       kind: artifact.kind.toLowerCase(),
       url: artifact.url,
-      text: artifact.text,
-      metadata: artifact.metadata,
+      text: artifact.text ? publicAgentText(artifact.text) : artifact.text,
+      metadata: publicJsonValue(artifact.metadata),
       createdAt: artifact.createdAt.toISOString(),
     })),
     events: task.events.map((event) => ({
       id: event.id,
       type: event.type,
-      message: event.message,
-      data: event.data,
+      message: publicAgentText(event.message),
+      data: publicJsonValue(event.data),
       createdAt: event.createdAt.toISOString(),
     })),
     createdAt: task.createdAt.toISOString(),

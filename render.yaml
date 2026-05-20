@@ -49,7 +49,7 @@ services:
       - key: OPENCLAW_GATEWAY_TOKEN
         sync: false
       - key: OPENCLAW_DEFAULT_MODEL
-        value: anthropic/claude-opus-4.7
+        sync: false
 
   - type: worker
     name: geminispark-worker
@@ -90,4 +90,4 @@ services:
       - key: OPENCLAW_GATEWAY_TOKEN
         sync: false
       - key: OPENCLAW_DEFAULT_MODEL
-        value: anthropic/claude-opus-4.7
+        sync: false

@@ -20,7 +20,7 @@ This backend runs the long-lived Gemini Spark task layer outside Vercel.
 - `AGENT_API_TOKEN`: bearer token required by task API routes.
 - `OPENCLAW_GATEWAY_URL`: VPS OpenClaw-compatible gateway base URL.
 - `OPENCLAW_GATEWAY_TOKEN`: bearer token for the VPS gateway.
-- `OPENCLAW_DEFAULT_MODEL`: defaults to `anthropic/claude-opus-4.7`.
+- `OPENCLAW_DEFAULT_MODEL`: private gateway model id; required in deployed environments and not returned to clients.
 - `ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API.
 
 The VPS gateway also needs `OPENROUTER_API_KEY`, `APIMART_API_KEY`, and

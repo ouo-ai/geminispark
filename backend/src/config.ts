@@ -42,7 +42,7 @@ export const config = {
   agentApiToken: process.env.AGENT_API_TOKEN || "",
   openClawGatewayUrl: (process.env.OPENCLAW_GATEWAY_URL || "").replace(/\/$/, ""),
   openClawGatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || "",
-  openClawDefaultModel: process.env.OPENCLAW_DEFAULT_MODEL || "anthropic/claude-opus-4.7",
+  openClawDefaultModel: process.env.OPENCLAW_DEFAULT_MODEL || "",
   openClawPollTimeoutMs: numberEnv("OPENCLAW_POLL_TIMEOUT_MS", 600_000),
   openClawPollIntervalMs: numberEnv("OPENCLAW_POLL_INTERVAL_MS", 2_000),
 }

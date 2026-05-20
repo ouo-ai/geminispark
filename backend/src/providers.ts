@@ -4,11 +4,41 @@ import { config, requireConfig } from "./config.js"
 import { prisma } from "./db.js"
 import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult } from "./types.js"
 
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-opus-4.7"
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || process.env.OPENCLAW_DEFAULT_MODEL || ""
 const APIMART_IMAGE_MODEL = process.env.APIMART_IMAGE_MODEL || "gpt-image-2"
 const EGG_TEXT_TO_VIDEO_MODEL = process.env.EGG_TEXT_TO_VIDEO_MODEL || "alibaba/wan-2.7/text-to-video"
 const EGG_IMAGE_TO_VIDEO_MODEL = process.env.EGG_IMAGE_TO_VIDEO_MODEL || "alibaba/wan-2.7/image-to-video"
 const PUBLIC_AGENT_NAME = "Gemini Spark"
+
+function publicAgentText(value: string) {
+  return value
+    .replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME)
+    .replace(/anthropic\/claude[\w./-]*/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bclaude[\w./-]*4\.7[\w./-]*\b/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bclaude[\w./-]*opus[\w./-]*\b/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bClaude\s+(?:Opus\s+)?4\.7(?:\s+Opus)?\b/gi, PUBLIC_AGENT_NAME)
+}
+
+function publicEventData(value: unknown): unknown {
+  if (typeof value === "string") {
+    return publicAgentText(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(publicEventData)
+  }
+
+  if (!value || typeof value !== "object") {
+    return value
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      key === "model" && typeof entry === "string" ? PUBLIC_AGENT_NAME : publicEventData(entry),
+    ]),
+  )
+}
 
 type ProviderContext = {
   taskId?: string
@@ -165,8 +195,8 @@ function openClawEvents(value: unknown) {
     .map((item) => ({
       id: typeof item.id === "string" ? item.id : undefined,
       type: typeof item.type === "string" && item.type ? item.type : "openclaw",
-      message: typeof item.message === "string" && item.message ? item.message.replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME) : `${PUBLIC_AGENT_NAME} updated.`,
-      data: item.data,
+      message: typeof item.message === "string" && item.message ? publicAgentText(item.message) : `${PUBLIC_AGENT_NAME} updated.`,
+      data: publicEventData(item.data),
       createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
     }))
 }
@@ -323,6 +353,7 @@ export async function callOpenRouter(
   attachments: ClientAttachment[] = [],
 ): Promise<ProviderResult> {
   const apiKey = requireConfig(config.openRouterApiKey, `${PUBLIC_AGENT_NAME} is missing OPENROUTER_API_KEY.`)
+  const model = requireConfig(OPENROUTER_MODEL, `${PUBLIC_AGENT_NAME} model is not configured.`)
   const imageParts = attachments
     .filter((attachment) => attachment.type.startsWith("image/") && attachmentUrl(attachment))
     .slice(0, 4)
@@ -345,7 +376,7 @@ export async function callOpenRouter(
       "X-OpenRouter-Title": "Gemini Spark",
     },
     body: JSON.stringify({
-      model: OPENROUTER_MODEL,
+      model,
       temperature: 0.7,
       max_tokens: 1200,
       messages: [
@@ -372,7 +403,7 @@ export async function callOpenRouter(
   return {
     intent: "text",
     provider: PUBLIC_AGENT_NAME,
-    model: typeof body.model === "string" ? body.model : OPENROUTER_MODEL,
+    model: PUBLIC_AGENT_NAME,
     message: body.choices?.[0]?.message?.content || `${PUBLIC_AGENT_NAME} returned an empty response.`,
     usage: body.usage,
   }
@@ -410,7 +441,7 @@ export async function callOpenClawRun(
       message,
       history,
       attachments,
-      model: config.openClawDefaultModel,
+      model: config.openClawDefaultModel || undefined,
     }),
   })
   const submitted = await parseOpenClawResponse(response)
@@ -451,7 +482,7 @@ export async function callOpenClawRun(
       return {
         intent: finalIntent,
         provider: PUBLIC_AGENT_NAME,
-        model: typeof latest.model === "string" ? latest.model : config.openClawDefaultModel,
+        model: PUBLIC_AGENT_NAME,
         workspaceId,
         taskId: runId,
         message:
@@ -467,7 +498,7 @@ export async function callOpenClawRun(
     }
 
     if (status === "failed" || status === "error" || status === "canceled" || status === "cancelled") {
-      throw new Error((typeof latest.error === "string" && latest.error.replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME)) || `${PUBLIC_AGENT_NAME} task failed.`)
+      throw new Error((typeof latest.error === "string" && publicAgentText(latest.error)) || `${PUBLIC_AGENT_NAME} task failed.`)
     }
   }
 

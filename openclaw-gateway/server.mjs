@@ -9,7 +9,8 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || ""
 const APIMART_API_KEY = process.env.APIMART_API_KEY || ""
 const EGGAPI_API_KEY = process.env.EGGAPI_API_KEY || ""
 const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || ""
-const OPENCLAW_DEFAULT_MODEL = process.env.OPENCLAW_DEFAULT_MODEL || "anthropic/claude-opus-4.7"
+const OPENCLAW_DEFAULT_MODEL = process.env.OPENCLAW_DEFAULT_MODEL || ""
+const PUBLIC_AGENT_NAME = "Gemini Spark"
 const APIMART_IMAGE_MODEL = process.env.APIMART_IMAGE_MODEL || "gpt-image-2"
 const EGG_TEXT_TO_VIDEO_MODEL = process.env.EGG_TEXT_TO_VIDEO_MODEL || "alibaba/wan-2.7/text-to-video"
 const EGG_IMAGE_TO_VIDEO_MODEL = process.env.EGG_IMAGE_TO_VIDEO_MODEL || "alibaba/wan-2.7/image-to-video"
@@ -18,6 +19,15 @@ const MEDIA_POLL_TIMEOUT_MS = Number(process.env.MEDIA_POLL_TIMEOUT_MS || 600_00
 const MEDIA_POLL_INTERVAL_MS = Number(process.env.MEDIA_POLL_INTERVAL_MS || 5_000)
 
 const runs = new Map()
+
+function publicAgentText(value) {
+  return value
+    .replace(/\bOpenClaw\b/g, PUBLIC_AGENT_NAME)
+    .replace(/anthropic\/claude[\w./-]*/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bclaude[\w./-]*4\.7[\w./-]*\b/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bclaude[\w./-]*opus[\w./-]*\b/gi, PUBLIC_AGENT_NAME)
+    .replace(/\bClaude\s+(?:Opus\s+)?4\.7(?:\s+Opus)?\b/gi, PUBLIC_AGENT_NAME)
+}
 
 function json(response, statusCode, payload) {
   const body = JSON.stringify(payload)
@@ -247,6 +257,11 @@ async function callOpenRouter(payload) {
     throw new Error("OPENROUTER_API_KEY is not configured.")
   }
 
+  const model = payload.model || OPENCLAW_DEFAULT_MODEL
+  if (!model) {
+    throw new Error(`${PUBLIC_AGENT_NAME} model is not configured.`)
+  }
+
   const imageParts = imageAttachmentUrls(payload.attachments, 4).map((url) => ({
     type: "image_url",
     image_url: {
@@ -265,7 +280,7 @@ async function callOpenRouter(payload) {
       "X-OpenRouter-Title": "Gemini Spark Gateway",
     },
     body: JSON.stringify({
-      model: payload.model || OPENCLAW_DEFAULT_MODEL,
+      model,
       temperature: 0.6,
       max_tokens: 1800,
       messages: [
@@ -285,8 +300,8 @@ async function callOpenRouter(payload) {
 
   const body = await parseProviderResponse(response)
   return {
-    message: body?.choices?.[0]?.message?.content || "Gemini Spark returned an empty response.",
-    model: body?.model || payload.model || OPENCLAW_DEFAULT_MODEL,
+    message: publicAgentText(body?.choices?.[0]?.message?.content || "Gemini Spark returned an empty response."),
+    model: PUBLIC_AGENT_NAME,
   }
 }
 
@@ -417,8 +432,8 @@ async function executeRun(run, payload) {
       workspaceId: run.workspaceId,
       progress: 15,
     })
-    await addEvent(run, "model_selected", "Gemini Spark selected Claude Opus 4.7.", {
-      model: payload.model || OPENCLAW_DEFAULT_MODEL,
+    await addEvent(run, "model_selected", "Gemini Spark selected the reasoning engine.", {
+      model: PUBLIC_AGENT_NAME,
       progress: 20,
     })
 
@@ -431,7 +446,7 @@ async function executeRun(run, payload) {
       run.status = "succeeded"
       run.intent = intent
       run.message = result.message
-      run.model = result.model
+      run.model = PUBLIC_AGENT_NAME
       run.artifacts = [{ type: "text", text: run.message }]
       await addEvent(run, "completed", "Gemini Spark completed the response.", { progress: 100 })
     } else if (intent === "image") {
@@ -451,7 +466,7 @@ async function executeRun(run, payload) {
       run.status = "succeeded"
       run.intent = intent
       run.message = "Gemini Spark generated an image artifact."
-      run.model = APIMART_IMAGE_MODEL
+      run.model = PUBLIC_AGENT_NAME
       run.providerTaskId = result.providerTaskId || undefined
       run.artifacts = [
         { type: "text", text: run.message },
@@ -482,7 +497,7 @@ async function executeRun(run, payload) {
       run.status = "succeeded"
       run.intent = intent
       run.message = "Gemini Spark generated a video artifact."
-      run.model = intent === "image-to-video" ? EGG_IMAGE_TO_VIDEO_MODEL : EGG_TEXT_TO_VIDEO_MODEL
+      run.model = PUBLIC_AGENT_NAME
       run.providerTaskId = result.providerTaskId || undefined
       run.artifacts = [
         { type: "text", text: run.message },
@@ -503,7 +518,7 @@ async function executeRun(run, payload) {
     await saveRun(run)
   } catch (error) {
     run.status = "failed"
-    run.error = error instanceof Error ? error.message.replace(/\bOpenClaw\b/g, "Gemini Spark") : "Gemini Spark run failed."
+    run.error = error instanceof Error ? publicAgentText(error.message) : "Gemini Spark run failed."
     run.finishedAt = new Date().toISOString()
     run.updatedAt = run.finishedAt
     await addEvent(run, "failed", run.error, { progress: 100 })
@@ -551,7 +566,7 @@ const server = createServer(async (request, response) => {
         workspaceId,
         intent: normalizeIntent(body.intent),
         status: "running",
-        model: body.model || OPENCLAW_DEFAULT_MODEL,
+        model: PUBLIC_AGENT_NAME,
         message: "",
         artifacts: [],
         events: [
