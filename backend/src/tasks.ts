@@ -1,10 +1,11 @@
-import { ArtifactKind, Prisma, TaskIntent, TaskStatus } from "@prisma/client"
+import { ArtifactKind, Prisma, Task, TaskIntent, TaskStatus } from "@prisma/client"
 
 import { creditCostForIntent, debitTaskCreditsTx, refundTaskCredits } from "./billing.js"
 import { prisma } from "./db.js"
 import { fromDbIntent, selectIntent, toDbIntent } from "./intent.js"
 import { getTaskQueue } from "./queue.js"
 import { fetchOpenClawRunSnapshot, runProviderForIntent } from "./providers.js"
+import { recordTaskConversationMetadata, validateTaskScope } from "./projects.js"
 import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult, RuntimeRunSnapshot, TaskInput } from "./types.js"
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELED])
@@ -17,6 +18,8 @@ export type CreateTaskParams = {
   sessionId?: string
   clientTaskId?: string
   externalUserId?: string
+  projectAgentId: string
+  chatThreadId: string
 }
 
 function toJson(value: unknown) {
@@ -97,6 +100,8 @@ export function serializeTask(
     id: task.id,
     clientTaskId: task.clientTaskId,
     sessionId: task.sessionId,
+    projectAgentId: task.projectAgentId,
+    chatThreadId: task.chatThreadId,
     intent: fromDbIntent(task.intent),
     status: statusLabel(task.status),
     progress: task.progress,
@@ -229,10 +234,16 @@ export async function createTask(params: CreateTaskParams) {
     sessionId: params.sessionId,
     clientTaskId: params.clientTaskId,
     externalUserId: params.externalUserId,
+    projectAgentId: params.projectAgentId,
+    chatThreadId: params.chatThreadId,
   }
   const intent = selectIntent(message, input.attachments)
   const dbIntent = toDbIntent(intent)
   const creditCost = creditCostForIntent(dbIntent)
+
+  if (params.externalUserId) {
+    await validateTaskScope(params.externalUserId, params.projectAgentId, params.chatThreadId)
+  }
 
   const task = await prisma.$transaction(async (tx) => {
     const created = await tx.task.create({
@@ -240,6 +251,8 @@ export async function createTask(params: CreateTaskParams) {
         clientTaskId: params.clientTaskId,
         externalUserId: params.externalUserId,
         sessionId: params.sessionId,
+        projectAgentId: params.projectAgentId,
+        chatThreadId: params.chatThreadId,
         message,
         intent: dbIntent,
         creditCost,
@@ -278,6 +291,15 @@ export async function createTask(params: CreateTaskParams) {
 
     return created
   })
+
+  if (params.externalUserId) {
+    await recordTaskConversationMetadata({
+      userId: params.externalUserId,
+      projectAgentId: params.projectAgentId,
+      chatThreadId: params.chatThreadId,
+      message,
+    })
+  }
 
   try {
     await getTaskQueue().add("run-agent-task", { taskId: task.id }, { jobId: task.id })
@@ -428,6 +450,52 @@ async function storeOpenClawTerminalError(taskId: string, snapshot: RuntimeRunSn
   await appendTaskEvent(taskId, status === TaskStatus.CANCELED ? "canceled" : "failed", snapshot.error || snapshot.message)
 }
 
+async function loadThreadHistoryForTask(task: Task): Promise<ClientMessage[]> {
+  if (!task.externalUserId || !task.projectAgentId || !task.chatThreadId) {
+    return []
+  }
+
+  const previousTasks = await prisma.task.findMany({
+    where: {
+      id: {
+        not: task.id,
+      },
+      externalUserId: task.externalUserId,
+      projectAgentId: task.projectAgentId,
+      chatThreadId: task.chatThreadId,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 4,
+    include: {
+      artifacts: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  })
+
+  return previousTasks
+    .reverse()
+    .flatMap((item) => {
+      const result = item.result && typeof item.result === "object" ? (item.result as Record<string, unknown>) : {}
+      const textArtifact = item.artifacts.find((artifact) => artifact.kind === ArtifactKind.TEXT && artifact.text)
+      const assistantBody =
+        (typeof result.message === "string" && result.message) ||
+        textArtifact?.text ||
+        item.error ||
+        ""
+      const messages: ClientMessage[] = [{ role: "user", body: item.message }]
+
+      if (assistantBody) {
+        messages.push({ role: "assistant", body: publicAgentText(assistantBody) })
+      }
+
+      return messages
+    })
+    .slice(-8)
+}
+
 export async function processTask(taskId: string) {
   const task = await prisma.task.findUnique({ where: { id: taskId } })
   if (!task) {
@@ -453,20 +521,18 @@ export async function processTask(taskId: string) {
   await appendTaskEvent(taskId, "running", "Task started.", { intent })
 
   try {
-    const result = await runProviderForIntent(intent, input.message, input.history, input.attachments, {
+    const threadHistory = await loadThreadHistoryForTask(task)
+    const result = await runProviderForIntent(intent, input.message, threadHistory, input.attachments, {
       taskId,
       userId: task.externalUserId || undefined,
+      projectAgentId: task.projectAgentId || undefined,
+      chatThreadId: task.chatThreadId || undefined,
       onEvent: (event) => appendProviderEvent(taskId, event),
     })
     await storeOpenClawAcceptedResult(taskId, result)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Task failed."
-    if (
-      message.startsWith("OpenClaw Gateway is missing") ||
-      message.includes("OpenClaw Gateway did not return")
-    ) {
-      await refundTaskCredits(taskId, "OpenClaw task did not start cleanly; credits refunded.")
-    }
+    await refundTaskCredits(taskId, "Gemini Spark runtime did not accept the task; credits refunded.")
 
     await prisma.task.update({
       where: { id: taskId },
@@ -507,19 +573,24 @@ export async function syncOpenClawTask(taskId: string) {
   })
 
   if (snapshot.workspaceId) {
-    await prisma.userWorkspace
-      .updateMany({
-        where: {
-          provider: "openclaw",
-          workspaceId: snapshot.workspaceId,
-        },
-        data: {
-          runtimeSessionId: snapshot.runtimeSessionId,
-          lastSyncedAt: new Date(),
-          error: null,
-        },
-      })
-      .catch(() => undefined)
+    if (task.projectAgentId) {
+      const runtimeAgentId =
+        snapshot.raw && typeof snapshot.raw === "object" && "runtimeAgentId" in snapshot.raw
+          ? String((snapshot.raw as { runtimeAgentId?: unknown }).runtimeAgentId || "")
+          : ""
+      await prisma.projectAgent
+        .updateMany({
+          where: {
+            id: task.projectAgentId,
+            workspaceId: snapshot.workspaceId,
+          },
+          data: {
+            updatedAt: new Date(),
+            ...(runtimeAgentId ? { runtimeAgentId } : {}),
+          },
+        })
+        .catch(() => undefined)
+    }
   }
 
   if (snapshot.status === "succeeded") {

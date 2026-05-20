@@ -1,6 +1,6 @@
 "use client"
 
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react"
+import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -54,6 +54,7 @@ type AgentMedia = {
 
 type ChatMessage = {
   id: string
+  taskId?: string
   role: "assistant" | "user"
   body: string
   status?: "thinking" | "done" | "error"
@@ -108,6 +109,8 @@ type AgentTaskArtifact = {
 
 type AgentTask = {
   id: string
+  projectAgentId?: string | null
+  chatThreadId?: string | null
   intent: string
   status: AgentTaskStatus
   progress: number
@@ -122,7 +125,36 @@ type AgentTask = {
   events?: AgentTaskEvent[]
 }
 
+type ProjectAgent = {
+  id: string
+  name: string
+  description?: string | null
+  status: string
+  workspaceId?: string | null
+  runtimeAgentId?: string | null
+  memorySummary?: string | null
+  instructions?: string | null
+  archivedAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+type ChatThread = {
+  id: string
+  projectAgentId: string
+  title: string
+  archivedAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 type AccountBootstrap = {
+  profile?: {
+    nickname?: string | null
+    language?: string | null
+    preferences?: unknown
+    memorySummary?: string | null
+  }
   credits: {
     freeCreditsRemaining: number
     periodCreditsRemaining: number
@@ -140,21 +172,30 @@ type AccountBootstrap = {
     provider: string
     status: string
     workspaceId: string | null
+    runtimeAgentId?: string | null
     initializedAt?: string | null
     lastUsedAt?: string | null
     error?: string | null
   }
+  projects: ProjectAgent[]
+  activeProject: ProjectAgent
+  threads: ChatThread[]
+  activeThread: ChatThread
+  messages?: ChatMessage[]
 }
 
 const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024
 const MAX_PERSISTED_ATTACHMENT_BYTES = 400_000
 const MAX_PERSISTED_SESSIONS = 30
 const MAX_PERSISTED_MESSAGES = 120
+const MAX_PERSISTED_EVENTS = 80
 const AGENT_BRAND = "Gemini Spark"
-const CHAT_STORAGE_KEY = "gemini-spark:chat-sessions:v1"
+const CHAT_STORAGE_KEY_PREFIX = "gemini-spark:chat-sessions:v2"
+const CHAT_STORAGE_VERSION = 2
 const AGENT_API_BASE_PATH = "/api/gemini-spark"
 const WELCOME_MESSAGE =
   "Sign in to initialize your Gemini Spark workspace, then send text, image, or video tasks through the agent."
+const EMPTY_THREADS: ChatThread[] = []
 
 const quickPrompts = [
   "Create a cinematic product video from this idea.",
@@ -238,20 +279,21 @@ function isOpenClawEvent(event: AgentTaskEvent) {
   return data.source === "openclaw" || event.type.startsWith("openclaw") || event.type.includes("workspace") || event.type.includes("tool") || event.type.includes("provider") || event.type.includes("artifact") || event.type === "run_created" || event.type === "model_selected" || event.type === "completed"
 }
 
+function isRuntimeTraceEvent(event: AgentTaskEvent) {
+  return eventData(event).runtimeSource === "openclaw-trajectory"
+}
+
+function runtimeEventTypeLabel(event: AgentTaskEvent) {
+  const rawType = eventData(event).rawType
+  return typeof rawType === "string" ? rawType : event.type
+}
+
 function shortWorkspaceId(workspaceId?: string | null) {
   if (!workspaceId) {
     return "pending"
   }
 
   return workspaceId.length > 12 ? `${workspaceId.slice(0, 8)}...${workspaceId.slice(-4)}` : workspaceId
-}
-
-function activityLabel(type: string) {
-  return type
-    .split(/[_:.]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ")
 }
 
 function workspaceGateState(
@@ -345,26 +387,40 @@ function OpenClawActivity({
   events,
   workspaceId,
   model,
+  status,
 }: {
   events?: AgentTaskEvent[]
   workspaceId?: string | null
   model?: string
+  status?: ChatMessage["status"]
 }) {
-  const activity = (events || []).filter(isOpenClawEvent).slice(-5)
+  const allEvents = events || []
+  const runtimeTraceEvents = allEvents.filter(isRuntimeTraceEvent)
+  const activity = runtimeTraceEvents.length > 0 ? runtimeTraceEvents : allEvents.filter(isOpenClawEvent)
   if (activity.length === 0 && !workspaceId && !model) {
     return null
   }
 
   const latest = activity[activity.length - 1]
   const artifactEvents = activity.filter((event) => typeof eventData(event).artifactUrl === "string")
+  const isTerminal = status === "done" || status === "error"
 
   return (
-    <div className="mt-3 border-t border-border/80 pt-3 text-xs">
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-foreground">
+    <details
+      key={`activity-${isTerminal ? "terminal" : "live"}-${activity.length}`}
+      open={!isTerminal || undefined}
+      className="mt-3 border-t border-border/80 pt-3 text-xs"
+    >
+      <summary className="mb-2 flex cursor-pointer list-none flex-wrap items-center gap-2 text-foreground [&::-webkit-details-marker]:hidden">
         <span className="inline-flex items-center gap-1.5 font-semibold">
           <Terminal className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           Gemini Spark Activity
         </span>
+        {activity.length > 0 && (
+          <span className="rounded-full border border-border bg-card px-2 py-0.5 text-muted-foreground">
+            {activity.length} runtime events
+          </span>
+        )}
         {workspaceId && (
           <span className="rounded-full border border-border bg-card px-2 py-0.5 text-muted-foreground">
             {shortWorkspaceId(workspaceId)}
@@ -375,14 +431,14 @@ function OpenClawActivity({
             {model}
           </span>
         )}
-      </div>
+      </summary>
       {latest && <p className="mb-2 text-muted-foreground">{displayBrandText(latest.message)}</p>}
       {activity.length > 0 && (
         <div className="grid gap-1.5">
           {activity.map((event) => (
             <div key={event.id} className="flex items-center gap-2 text-muted-foreground">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-              <span className="shrink-0 text-foreground/80">{activityLabel(event.type)}</span>
+              <span className="shrink-0 font-mono text-[11px] text-foreground/80">{runtimeEventTypeLabel(event)}</span>
               <span className="min-w-0 truncate">{displayBrandText(event.message)}</span>
             </div>
           ))}
@@ -407,7 +463,7 @@ function OpenClawActivity({
           })}
         </div>
       )}
-    </div>
+    </details>
   )
 }
 
@@ -426,8 +482,16 @@ async function fetchTask(taskId: string) {
   return data as AgentTask
 }
 
-async function fetchAccountBootstrap() {
-  const response = await fetch(agentApiUrl("/bootstrap"), {
+async function fetchAccountBootstrap(projectAgentId?: string | null, chatThreadId?: string | null) {
+  const url = new URL(agentApiUrl("/bootstrap"), window.location.origin)
+  if (projectAgentId) {
+    url.searchParams.set("projectAgentId", projectAgentId)
+  }
+  if (chatThreadId) {
+    url.searchParams.set("chatThreadId", chatThreadId)
+  }
+
+  const response = await fetch(url.pathname + url.search, {
     headers: {
       Accept: "application/json",
     },
@@ -439,6 +503,57 @@ async function fetchAccountBootstrap() {
   }
 
   return data as AccountBootstrap
+}
+
+async function createProjectRequest(name: string) {
+  const response = await fetch(agentApiUrl("/projects"), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name }),
+  })
+  const data = (await response.json()) as { project?: ProjectAgent; thread?: ChatThread; error?: string }
+
+  if (!response.ok || !data.project || !data.thread) {
+    throw new Error(data.error || "Project could not be created.")
+  }
+
+  return { project: data.project, thread: data.thread }
+}
+
+async function createThreadRequest(projectAgentId: string, title = "New chat") {
+  const response = await fetch(agentApiUrl(`/projects/${encodeURIComponent(projectAgentId)}/threads`), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ title }),
+  })
+  const data = (await response.json()) as { thread?: ChatThread; error?: string }
+
+  if (!response.ok || !data.thread) {
+    throw new Error(data.error || "Chat could not be created.")
+  }
+
+  return data.thread
+}
+
+async function fetchThreadMessagesRequest(threadId: string) {
+  const response = await fetch(agentApiUrl(`/threads/${encodeURIComponent(threadId)}/messages`), {
+    headers: {
+      Accept: "application/json",
+    },
+  })
+  const data = (await response.json()) as { messages?: ChatMessage[]; error?: string }
+
+  if (!response.ok || !Array.isArray(data.messages)) {
+    throw new Error(data.error || "Chat history could not be loaded.")
+  }
+
+  return data.messages
 }
 
 function isTerminalTask(task: AgentTask) {
@@ -505,32 +620,47 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function createChatSession(): ChatSession {
+function createChatSession(thread?: ChatThread, messages?: ChatMessage[]): ChatSession {
   const now = Date.now()
-  const id = createId("session")
+  const id = thread?.id || createId("session")
 
   return {
     id,
-    title: "New chat",
-    createdAt: now,
-    updatedAt: now,
-    messages: [
-      {
-        id: createId("assistant"),
-        role: "assistant",
-        body: WELCOME_MESSAGE,
-      },
-    ],
+    title: thread?.title || "New chat",
+    createdAt: thread ? new Date(thread.createdAt).getTime() : now,
+    updatedAt: thread ? new Date(thread.updatedAt).getTime() : now,
+    messages:
+      messages && messages.length > 0
+        ? messages
+        : [
+            {
+              id: createId("assistant"),
+              role: "assistant",
+              body: WELCOME_MESSAGE,
+            },
+          ],
   }
 }
 
-function createInitialChatState(): ChatState {
-  const initialSession = createChatSession()
+function createInitialChatState(threads: ChatThread[] = [], activeThreadId?: string, activeMessages: ChatMessage[] = []): ChatState {
+  const activeThread = threads.find((thread) => thread.id === activeThreadId) || threads[0]
+  const initialSession = createChatSession(activeThread, activeMessages)
 
   return {
     activeSessionId: initialSession.id,
-    sessions: [initialSession],
+    sessions:
+      threads.length > 0
+        ? threads.map((thread) => createChatSession(thread, thread.id === initialSession.id ? activeMessages : undefined))
+        : [initialSession],
   }
+}
+
+function chatStorageKey(ownerId?: string | null, projectAgentId?: string | null) {
+  if (!ownerId) {
+    return `${CHAT_STORAGE_KEY_PREFIX}:signed-out`
+  }
+
+  return `${CHAT_STORAGE_KEY_PREFIX}:user:${encodeURIComponent(ownerId)}:project:${encodeURIComponent(projectAgentId || "pending")}`
 }
 
 function sortSessionsByActivity(sessions: ChatSession[]) {
@@ -554,8 +684,27 @@ function sanitizeMessageForStorage(message: ChatMessage): ChatMessage {
 
   return {
     ...message,
-    events: message.events?.slice(-8),
+    events: message.events?.slice(-MAX_PERSISTED_EVENTS),
     attachments: attachments && attachments.length > 0 ? attachments : undefined,
+  }
+}
+
+function normalizeStoredEvent(value: unknown): AgentTaskEvent | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+
+  const item = value as Partial<AgentTaskEvent>
+  if (typeof item.id !== "string" || typeof item.type !== "string" || typeof item.message !== "string" || typeof item.createdAt !== "string") {
+    return null
+  }
+
+  return {
+    id: item.id,
+    type: item.type,
+    message: item.message,
+    data: item.data && typeof item.data === "object" ? (item.data as Record<string, unknown>) : null,
+    createdAt: item.createdAt,
   }
 }
 
@@ -577,6 +726,49 @@ function prepareChatStateForStorage(state: ChatState): ChatState {
   }
 }
 
+function reconcileChatStateWithThreads(
+  state: ChatState,
+  threads: ChatThread[],
+  activeThreadId?: string,
+  activeMessages: ChatMessage[] = [],
+) {
+  if (threads.length === 0) {
+    return state.sessions.length > 0 ? state : createInitialChatState()
+  }
+
+  const threadIds = new Set(threads.map((thread) => thread.id))
+  const threadById = new Map(threads.map((thread) => [thread.id, thread]))
+  const storedSessions = state.sessions
+    .filter((session) => threadIds.has(session.id))
+    .map((session) => {
+      if (session.id !== activeThreadId) {
+        return session
+      }
+
+      return {
+        ...session,
+        messages: activeMessages.length > 0 ? activeMessages : createChatSession(threadById.get(session.id)).messages,
+        updatedAt: Date.now(),
+      }
+    })
+  const storedIds = new Set(storedSessions.map((session) => session.id))
+  const missingSessions = threads
+    .filter((thread) => !storedIds.has(thread.id))
+    .map((thread) => createChatSession(thread, thread.id === activeThreadId ? activeMessages : undefined))
+  const sessions = sortSessionsByActivity([...storedSessions, ...missingSessions])
+  const activeSessionId =
+    activeThreadId && sessions.some((session) => session.id === activeThreadId)
+      ? activeThreadId
+      : sessions.some((session) => session.id === state.activeSessionId)
+        ? state.activeSessionId
+        : sessions[0].id
+
+  return {
+    activeSessionId,
+    sessions,
+  }
+}
+
 function normalizeStoredMessage(value: unknown): ChatMessage | null {
   if (!value || typeof value !== "object") {
     return null
@@ -591,7 +783,11 @@ function normalizeStoredMessage(value: unknown): ChatMessage | null {
   const message: ChatMessage = {
     id: item.id,
     role: item.role,
-    body: item.body,
+    body: displayBrandText(item.body),
+  }
+
+  if (typeof item.taskId === "string") {
+    message.taskId = item.taskId
   }
 
   if (item.status === "done" || item.status === "error") {
@@ -611,6 +807,13 @@ function normalizeStoredMessage(value: unknown): ChatMessage | null {
 
   if (typeof item.intent === "string") {
     message.intent = item.intent
+  }
+
+  if (Array.isArray(item.events)) {
+    const events = item.events.map(normalizeStoredEvent).filter((event): event is AgentTaskEvent => event !== null)
+    if (events.length > 0) {
+      message.events = events.slice(-MAX_PERSISTED_EVENTS)
+    }
   }
 
   if (item.media?.type && Array.isArray(item.media.urls)) {
@@ -671,13 +874,13 @@ function normalizeStoredSession(value: unknown): ChatSession | null {
   }
 }
 
-function loadStoredSnapshot(): { chatState: ChatState; draft: string } | null {
+function loadStoredSnapshot(storageKey: string): { chatState: ChatState; draft: string } | null {
   if (typeof window === "undefined") {
     return null
   }
 
   try {
-    const raw = window.localStorage.getItem(CHAT_STORAGE_KEY)
+    const raw = window.localStorage.getItem(storageKey)
     if (!raw) {
       return null
     }
@@ -691,7 +894,7 @@ function loadStoredSnapshot(): { chatState: ChatState; draft: string } | null {
       ? parsed.chatState.sessions.map(normalizeStoredSession).filter(isChatSession)
       : []
 
-    if (parsed.version !== 1 || sessions.length === 0) {
+    if (parsed.version !== CHAT_STORAGE_VERSION || sessions.length === 0) {
       return null
     }
 
@@ -713,16 +916,16 @@ function loadStoredSnapshot(): { chatState: ChatState; draft: string } | null {
   }
 }
 
-function saveStoredSnapshot(chatState: ChatState, draft: string) {
+function saveStoredSnapshot(storageKey: string, chatState: ChatState, draft: string) {
   if (typeof window === "undefined") {
     return
   }
 
   try {
     window.localStorage.setItem(
-      CHAT_STORAGE_KEY,
+      storageKey,
       JSON.stringify({
-        version: 1,
+        version: CHAT_STORAGE_VERSION,
         chatState: prepareChatStateForStorage(chatState),
         draft,
       }),
@@ -751,16 +954,9 @@ function applyUrlPromptToChatState(state: ChatState, prompt: string) {
   const shouldReuseActiveSession = active && !sessionHasUserMessages(active)
 
   if (!shouldReuseActiveSession) {
-    const session = {
-      ...createChatSession(),
-      title: makeSessionTitle(prompt, []),
-      updatedAt: Date.now(),
-    }
-
     return {
       chatState: {
-        activeSessionId: session.id,
-        sessions: sortSessionsByActivity([session, ...state.sessions]),
+        ...state,
       },
       draft: prompt,
     }
@@ -945,11 +1141,22 @@ export function GeminiSparkChat() {
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year")
   const [billingError, setBillingError] = useState("")
   const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [projectActionError, setProjectActionError] = useState("")
+  const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const [isCreatingThread, setIsCreatingThread] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const hasLoadedUrlPromptRef = useRef(false)
+  const resumingTaskIdsRef = useRef<Set<string>>(new Set())
   const [chatState, setChatState] = useState<ChatState>(() => createInitialChatState())
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null)
+  const activeProject =
+    account?.projects.find((project) => project.id === activeProjectId) || account?.activeProject || null
+  const isActiveProjectBootstrapped = !activeProject || account?.activeProject.id === activeProject.id
+  const projectThreads = activeProject && isActiveProjectBootstrapped ? account?.threads || EMPTY_THREADS : EMPTY_THREADS
+  const ownerStorageKey = chatStorageKey(session?.user.id, activeProject?.id)
 
   const activeSession =
     chatState.sessions.find((session) => session.id === chatState.activeSessionId) ?? chatState.sessions[0]
@@ -961,7 +1168,10 @@ export function GeminiSparkChat() {
   const latestVisibleMessage = visibleMessages[visibleMessages.length - 1]
   const latestMediaKey = latestVisibleMessage?.media?.urls.join("|") ?? ""
   const isSignedIn = Boolean(session?.user)
-  const workspaceState = workspaceGateState(isSignedIn, isSessionPending, account, bootstrapError)
+  const workspaceState =
+    isSignedIn && !isActiveProjectBootstrapped
+      ? ("initializing" as const)
+      : workspaceGateState(isSignedIn, isSessionPending, account, bootstrapError)
   const isWorkspaceReady = workspaceState === "ready"
   const isWorkspaceBlocked = isSignedIn && !isWorkspaceReady
 
@@ -989,15 +1199,26 @@ export function GeminiSparkChat() {
   }
 
   function signOut() {
+    setChatState(createInitialChatState())
+    setDraft("")
+    setAttachments([])
+    setAttachmentError("")
+    setAccount(null)
+    setBootstrapError("")
+    setActiveProjectId(null)
+    setProjectActionError("")
+    setIsStorageReady(false)
+    setLoadedStorageKey(null)
     void authClient.signOut()
   }
 
-  async function refreshAccount() {
+  async function refreshAccount(projectAgentId?: string | null, chatThreadId?: string | null) {
     setBootstrapError("")
 
     try {
-      const nextAccount = await fetchAccountBootstrap()
+      const nextAccount = await fetchAccountBootstrap(projectAgentId ?? activeProject?.id, chatThreadId ?? activeSession?.id)
       setAccount(nextAccount)
+      setActiveProjectId(nextAccount.activeProject.id)
       return nextAccount
     } catch (error) {
       const message = displayBrandText(error instanceof Error ? error.message : "Gemini Spark workspace initialization failed.")
@@ -1058,17 +1279,34 @@ export function GeminiSparkChat() {
   }
 
   useEffect(() => {
-    if (hasLoadedUrlPromptRef.current) {
+    if (isSessionPending) {
       return
     }
 
-    hasLoadedUrlPromptRef.current = true
+    if (isSignedIn && (!activeProject?.id || !isActiveProjectBootstrapped)) {
+      return
+    }
 
-    const stored = loadStoredSnapshot()
+    if (isStorageReady && loadedStorageKey === ownerStorageKey) {
+      return
+    }
+
+    setIsStorageReady(false)
+    setLoadedStorageKey(null)
+
+    const stored = loadStoredSnapshot(ownerStorageKey)
     const params = new URLSearchParams(window.location.search)
-    const prompt = params.get("prompt")?.trim()
-    let nextChatState = stored?.chatState ?? createInitialChatState()
+    const shouldApplyUrlPrompt = !hasLoadedUrlPromptRef.current
+    const prompt = shouldApplyUrlPrompt ? params.get("prompt")?.trim() : ""
+    const activeThreadMessages = account?.messages || []
+    let nextChatState = stored?.chatState ?? createInitialChatState(projectThreads, account?.activeThread.id, activeThreadMessages)
     let nextDraft = stored?.draft ?? ""
+
+    nextChatState = reconcileChatStateWithThreads(nextChatState, projectThreads, account?.activeThread.id, activeThreadMessages)
+
+    if (shouldApplyUrlPrompt) {
+      hasLoadedUrlPromptRef.current = true
+    }
 
     if (prompt) {
       const applied = applyUrlPromptToChatState(nextChatState, prompt)
@@ -1079,8 +1317,20 @@ export function GeminiSparkChat() {
 
     setChatState(nextChatState)
     setDraft(nextDraft)
+    setLoadedStorageKey(ownerStorageKey)
     setIsStorageReady(true)
-  }, [])
+  }, [
+    activeProject?.id,
+    isActiveProjectBootstrapped,
+    isSessionPending,
+    isSignedIn,
+    isStorageReady,
+    loadedStorageKey,
+    account?.activeThread.id,
+    account?.messages,
+    ownerStorageKey,
+    projectThreads,
+  ])
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -1095,6 +1345,7 @@ export function GeminiSparkChat() {
       .then((nextAccount) => {
         if (!cancelled) {
           setAccount(nextAccount)
+          setActiveProjectId(nextAccount.activeProject.id)
           setBootstrapError("")
         }
       })
@@ -1108,19 +1359,25 @@ export function GeminiSparkChat() {
     return () => {
       cancelled = true
     }
-  }, [isSignedIn])
+  }, [isSignedIn, session?.user.id])
 
   useEffect(() => {
-    if (!isStorageReady) {
+    if (!activeProjectId && account?.activeProject.id) {
+      setActiveProjectId(account.activeProject.id)
+    }
+  }, [account?.activeProject.id, activeProjectId])
+
+  useEffect(() => {
+    if (!isStorageReady || loadedStorageKey !== ownerStorageKey) {
       return
     }
 
     const timeout = window.setTimeout(() => {
-      saveStoredSnapshot(chatState, draft)
+      saveStoredSnapshot(ownerStorageKey, chatState, draft)
     }, 250)
 
     return () => window.clearTimeout(timeout)
-  }, [chatState, draft, isStorageReady])
+  }, [chatState, draft, isStorageReady, loadedStorageKey, ownerStorageKey])
 
   useEffect(() => {
     if (!isThinking) {
@@ -1162,6 +1419,30 @@ export function GeminiSparkChat() {
     visibleMessages.length,
   ])
 
+  useEffect(() => {
+    if (!isSignedIn || !isWorkspaceReady) {
+      return
+    }
+
+    const runningMessages = activeSession.messages.filter(
+      (message) => message.role === "assistant" && message.status === "thinking" && message.taskId,
+    )
+
+    for (const message of runningMessages) {
+      const taskId = message.taskId
+      if (!taskId || resumingTaskIdsRef.current.has(taskId)) {
+        continue
+      }
+
+      resumingTaskIdsRef.current.add(taskId)
+      void waitForTaskCompletion(taskId, (task) => applyTaskToAssistantMessage(activeSession.id, message.id, task))
+        .catch(() => undefined)
+        .finally(() => {
+          resumingTaskIdsRef.current.delete(taskId)
+        })
+    }
+  }, [activeSession.id, activeSession.messages, isSignedIn, isWorkspaceReady])
+
   async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || [])
     setAttachmentError("")
@@ -1199,31 +1480,198 @@ export function GeminiSparkChat() {
     setAttachments((current) => current.filter((attachment) => attachment.id !== id))
   }
 
-  function startNewChat() {
-    const session = createChatSession()
+  async function startNewChat() {
+    if (!isSignedIn) {
+      signInWithGoogle()
+      return
+    }
+
+    if (!activeProject?.id || isCreatingThread) {
+      return
+    }
+
+    setIsCreatingThread(true)
+    setProjectActionError("")
+
+    try {
+      const thread = await createThreadRequest(activeProject.id)
+      const nextSession = createChatSession(thread)
+
+      setAccount((current) =>
+        current && current.activeProject.id === activeProject.id
+          ? {
+              ...current,
+              threads: [thread, ...current.threads.filter((item) => item.id !== thread.id)],
+              activeThread: thread,
+            }
+          : current,
+      )
+      setChatState((current) => ({
+        activeSessionId: nextSession.id,
+        sessions: [nextSession, ...current.sessions.filter((session) => session.id !== nextSession.id)],
+      }))
+      setDraft("")
+      setAttachments([])
+      setAttachmentError("")
+    } catch (error) {
+      setProjectActionError(error instanceof Error ? error.message : "Chat could not be created.")
+    } finally {
+      setIsCreatingThread(false)
+    }
+  }
+
+  async function startNewProject() {
+    if (!isSignedIn) {
+      signInWithGoogle()
+      return
+    }
+
+    if (isCreatingProject) {
+      return
+    }
+
+    setIsCreatingProject(true)
+    setProjectActionError("")
+
+    try {
+      const projectNumber = (account?.projects.length || 0) + 1
+      const { project, thread } = await createProjectRequest(`Project ${projectNumber}`)
+      const nextWorkspace = {
+        provider: "openclaw",
+        status: project.status,
+        workspaceId: project.workspaceId || null,
+        runtimeAgentId: project.runtimeAgentId || null,
+        initializedAt: project.status.toLowerCase() === "ready" ? project.updatedAt : null,
+        lastUsedAt: project.updatedAt,
+        error: null,
+      }
+
+      setActiveProjectId(project.id)
+      setAccount((current) =>
+        current
+          ? {
+              ...current,
+              projects: [project, ...current.projects.filter((item) => item.id !== project.id)],
+              activeProject: project,
+              threads: [thread],
+              activeThread: thread,
+              workspace: nextWorkspace,
+            }
+          : current,
+      )
+      setChatState(createInitialChatState([thread]))
+      setDraft("")
+      setAttachments([])
+      setAttachmentError("")
+      void refreshAccount(project.id, thread.id).catch(() => undefined)
+    } catch (error) {
+      setProjectActionError(error instanceof Error ? error.message : "Project could not be created.")
+    } finally {
+      setIsCreatingProject(false)
+    }
+  }
+
+  function switchProject(projectId: string) {
+    if (projectId === activeProject?.id) {
+      return
+    }
+
+    setActiveProjectId(projectId)
+    setProjectActionError("")
+    setBootstrapError("")
+    setIsStorageReady(false)
+    void refreshAccount(projectId, null).catch(() => undefined)
+  }
+
+  function selectChatThread(threadId: string) {
+    setProjectActionError("")
+    setChatState((current) => ({
+      ...current,
+      activeSessionId: threadId,
+    }))
+
+    void fetchThreadMessagesRequest(threadId)
+      .then((messages) => {
+        setChatState((current) => ({
+          ...current,
+          sessions: current.sessions.map((session) =>
+            session.id === threadId
+              ? {
+                  ...session,
+                  messages:
+                    messages.length > 0
+                      ? messages
+                      : createChatSession(projectThreads.find((thread) => thread.id === threadId)).messages,
+                  updatedAt: Date.now(),
+                }
+              : session,
+          ),
+        }))
+      })
+      .catch((error) => {
+        setProjectActionError(error instanceof Error ? error.message : "Chat history could not be loaded.")
+      })
+  }
+
+  function applyTaskToAssistantMessage(sessionId: string, messageId: string, task: AgentTask) {
+    const latestEvent = latestTaskEvent(task)
+    const pendingMessage =
+      task.message ||
+      latestEvent?.message ||
+      (task.status === "queued" ? "Task queued." : "Gemini Spark is processing this task.")
+    const agentData = taskToAgentResponse(task)
+    const isDone = task.status === "succeeded"
+    const isError = task.status === "failed" || task.status === "canceled"
 
     setChatState((current) => {
-      const completedSessions = current.sessions.filter((item) =>
-        item.messages.some((message) => message.role === "user"),
+      const nextSessions = current.sessions.map((session) =>
+        session.id === sessionId
+          ? {
+              ...session,
+              updatedAt: Date.now(),
+              messages: session.messages.map((message) =>
+                message.id === messageId
+                  ? {
+                      ...message,
+                      taskId: task.id,
+                      body: isDone || isError ? agentData.message : displayBrandText(pendingMessage),
+                      status: isDone ? ("done" as const) : isError ? ("error" as const) : ("thinking" as const),
+                      provider: isDone ? agentData.provider : undefined,
+                      model: isDone ? agentData.model : undefined,
+                      intent: agentData.intent,
+                      workspaceId: task.workspaceId,
+                      events: task.events,
+                      media: isDone ? agentData.media : undefined,
+                    }
+                  : message,
+              ),
+            }
+          : session,
       )
 
       return {
-        activeSessionId: session.id,
-        sessions: [session, ...completedSessions],
+        ...current,
+        sessions: sortSessionsByActivity(nextSessions),
       }
     })
-    setDraft("")
-    setAttachments([])
-    setAttachmentError("")
+  }
+
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || !event.metaKey) {
+      return
+    }
+
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     const cleanDraft = draft.trim()
-    if (!cleanDraft || isThinking || !isSignedIn || !isWorkspaceReady) {
+    if (!cleanDraft || isThinking || !isSignedIn || !isWorkspaceReady || !activeProject?.id || !activeSession?.id) {
       if (isSignedIn && !isWorkspaceReady) {
-        void refreshAccount().catch(() => undefined)
+        void refreshAccount(activeProject?.id, activeSession?.id).catch(() => undefined)
       }
       return
     }
@@ -1266,6 +1714,7 @@ export function GeminiSparkChat() {
     setAttachments([])
     setAttachmentError("")
     setIsThinking(true)
+    let submittedTaskId = ""
 
     try {
       const response = await fetch(agentApiUrl("/tasks"), {
@@ -1277,6 +1726,8 @@ export function GeminiSparkChat() {
         body: JSON.stringify({
           message: cleanDraft,
           attachments: submittedAttachments.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
+          projectAgentId: activeProject.id,
+          chatThreadId: sessionId,
           sessionId,
           clientTaskId: thinkingMessage.id,
           history: messages
@@ -1291,7 +1742,7 @@ export function GeminiSparkChat() {
       if (!response.ok) {
         if (response.status === 402) {
           setBillingOpen(true)
-          void refreshAccount().catch(() => undefined)
+          void refreshAccount(activeProject.id, sessionId).catch(() => undefined)
         }
 
         throw new Error(("error" in data && data.error) || "Agent request failed.")
@@ -1302,48 +1753,10 @@ export function GeminiSparkChat() {
       }
 
       const submittedTask = data as AgentTask
-      void refreshAccount().catch(() => undefined)
-      const updateFromTask = (task: AgentTask) => {
-        const latestEvent = latestTaskEvent(task)
-        const pendingMessage =
-          task.message ||
-          latestEvent?.message ||
-          (task.status === "queued" ? "Task queued." : "Gemini Spark is processing this task.")
-        const agentData = taskToAgentResponse(task)
-        const isDone = task.status === "succeeded"
-        const isError = task.status === "failed" || task.status === "canceled"
-
-        setChatState((current) => {
-          const nextSessions = current.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  updatedAt: Date.now(),
-                  messages: session.messages.map((message) =>
-                    message.id === thinkingMessage.id
-                      ? {
-                          ...message,
-                          body: isDone || isError ? agentData.message : displayBrandText(pendingMessage),
-                          status: isDone ? ("done" as const) : isError ? ("error" as const) : ("thinking" as const),
-                          provider: isDone ? agentData.provider : undefined,
-                          model: isDone ? agentData.model : undefined,
-                          intent: agentData.intent,
-                          workspaceId: task.workspaceId,
-                          events: task.events,
-                          media: isDone ? agentData.media : undefined,
-                        }
-                      : message,
-                  ),
-                }
-              : session,
-          )
-
-          return {
-            ...current,
-            sessions: sortSessionsByActivity(nextSessions),
-          }
-        })
-      }
+      submittedTaskId = submittedTask.id
+      resumingTaskIdsRef.current.add(submittedTask.id)
+      void refreshAccount(activeProject.id, sessionId).catch(() => undefined)
+      const updateFromTask = (task: AgentTask) => applyTaskToAssistantMessage(sessionId, thinkingMessage.id, task)
 
       updateFromTask(submittedTask)
       const completedTask = await waitForTaskCompletion(submittedTask.id, updateFromTask)
@@ -1380,7 +1793,10 @@ export function GeminiSparkChat() {
       })
     } finally {
       setIsThinking(false)
-      void refreshAccount().catch(() => undefined)
+      if (submittedTaskId) {
+        resumingTaskIdsRef.current.delete(submittedTaskId)
+      }
+      void refreshAccount(activeProject.id, sessionId).catch(() => undefined)
     }
   }
 
@@ -1407,14 +1823,14 @@ export function GeminiSparkChat() {
         className={cn(
           "relative z-10 grid h-full min-h-0",
           isSessionPanelCollapsed
-            ? "lg:grid-cols-[76px_minmax(0,1fr)]"
+            ? "lg:grid-cols-[72px_minmax(0,1fr)]"
             : "lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]",
         )}
       >
           <aside
             className={cn(
               "hidden border-r border-border/70 bg-background/82 backdrop-blur-xl lg:flex lg:min-h-0 lg:flex-col",
-              isSessionPanelCollapsed ? "lg:p-3" : "lg:p-4",
+              isSessionPanelCollapsed ? "lg:items-center lg:p-3.5" : "lg:items-stretch lg:p-4",
             )}
           >
             <div
@@ -1434,7 +1850,7 @@ export function GeminiSparkChat() {
                 size="icon-sm"
                 variant="ghost"
                 rounded="lg"
-                className="hidden bg-transparent lg:inline-flex"
+                className={cn("hidden bg-transparent lg:inline-flex", isSessionPanelCollapsed && "lg:size-11")}
                 aria-label={isSessionPanelCollapsed ? "Expand sessions sidebar" : "Collapse sessions sidebar"}
                 aria-expanded={!isSessionPanelCollapsed}
                 aria-controls="gemini-spark-session-list"
@@ -1453,16 +1869,81 @@ export function GeminiSparkChat() {
               size={isSessionPanelCollapsed ? "icon" : "sm"}
               variant={isSessionPanelCollapsed ? "ghost" : "secondary"}
               rounded="lg"
-              className={cn("mb-4 bg-transparent", !isSessionPanelCollapsed && "w-full justify-start")}
+              className={cn("mb-3 bg-transparent", isSessionPanelCollapsed ? "lg:size-11" : "w-full justify-start")}
               type="button"
-              onClick={startNewChat}
-              title="New chat"
+              onClick={() => void startNewProject()}
+              title="New project"
+              disabled={isCreatingProject || !isSignedIn}
             >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span className={cn(isSessionPanelCollapsed && "lg:hidden")}>New chat</span>
+              {isCreatingProject ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+              <span className={cn(isSessionPanelCollapsed && "lg:hidden")}>New project</span>
             </Button>
 
-            <div id="gemini-spark-session-list" className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto">
+            <div className={cn("mb-4 grid gap-1.5", isSessionPanelCollapsed && "lg:w-11")}>
+              <p className={cn("px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground", isSessionPanelCollapsed && "lg:hidden")}>
+                Projects
+              </p>
+              {(account?.projects || []).map((project) => {
+                const isActive = activeProject?.id === project.id
+
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    title={isSessionPanelCollapsed ? project.name : undefined}
+                    onClick={() => switchProject(project.id)}
+                    className={cn(
+                      "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition",
+                      isSessionPanelCollapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
+                      isActive
+                        ? "border-primary/55 bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(66,133,244,0.18)]"
+                        : "border-transparent bg-background/35 text-muted-foreground hover:border-border hover:bg-background/75 hover:text-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-md border",
+                        isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
+                      )}
+                    >
+                      <Bot className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <span className={cn("min-w-0", isSessionPanelCollapsed && "lg:hidden")}>
+                      <span className="block truncate text-sm font-semibold">{project.name}</span>
+                      <span className="mt-0.5 block truncate text-xs leading-5">
+                        {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <Button
+              size={isSessionPanelCollapsed ? "icon" : "sm"}
+              variant={isSessionPanelCollapsed ? "ghost" : "secondary"}
+              rounded="lg"
+              className={cn("mb-3 bg-transparent", isSessionPanelCollapsed ? "lg:size-11" : "w-full justify-start")}
+              type="button"
+              onClick={() => void startNewChat()}
+              title="New chat"
+              disabled={isCreatingThread || !isSignedIn || !activeProject}
+            >
+              {isCreatingThread ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+              <span className={cn(isSessionPanelCollapsed && "lg:hidden")}>New chat</span>
+            </Button>
+            <p className={cn("mb-2 px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground", isSessionPanelCollapsed && "lg:hidden")}>
+              Chats
+            </p>
+
+            <div
+              id="gemini-spark-session-list"
+              className={cn(
+                "grid min-h-0 flex-1 content-start gap-2 overflow-y-auto",
+                isSessionPanelCollapsed && "lg:w-11",
+              )}
+            >
               {chatState.sessions.map((session) => {
                 const SessionIcon = sessionIcon(session)
                 const isActive = activeSession.id === session.id
@@ -1473,15 +1954,10 @@ export function GeminiSparkChat() {
                     type="button"
                     aria-pressed={isActive}
                     title={isSessionPanelCollapsed ? session.title : undefined}
-                    onClick={() =>
-                      setChatState((current) => ({
-                        ...current,
-                        activeSessionId: session.id,
-                      }))
-                    }
+                    onClick={() => selectChatThread(session.id)}
                     className={cn(
                       "grid min-h-16 grid-cols-[36px_minmax(0,1fr)] items-center gap-3 rounded-lg border px-3 py-2 text-left transition lg:min-h-14",
-                      isSessionPanelCollapsed && "lg:grid-cols-1 lg:place-items-center lg:px-2",
+                      isSessionPanelCollapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
                       isActive
                         ? "border-primary/55 bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(66,133,244,0.2)]"
                         : "border-transparent bg-background/40 text-muted-foreground hover:border-border hover:bg-background/75 hover:text-foreground",
@@ -1514,8 +1990,11 @@ export function GeminiSparkChat() {
                   <Bot className="h-4 w-4" aria-hidden="true" />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Active fused agent</p>
-                  <h1 className="truncate text-sm font-semibold text-foreground">{activeSession.title}</h1>
+                  <p className="text-xs text-muted-foreground">Project agent</p>
+                  <h1 className="truncate text-sm font-semibold text-foreground">
+                    {activeProject?.name || AGENT_BRAND}
+                    {activeSession?.title ? <span className="font-normal text-muted-foreground"> / {activeSession.title}</span> : null}
+                  </h1>
                 </div>
               </div>
               <div className="flex min-w-0 items-center justify-end gap-2">
@@ -1542,13 +2021,34 @@ export function GeminiSparkChat() {
                     Sign in
                   </Button>
                 )}
-                <Button size="icon-sm" rounded="lg" className="lg:hidden" type="button" onClick={startNewChat} title="New chat">
+                <Button size="icon-sm" rounded="lg" className="lg:hidden" type="button" onClick={() => void startNewChat()} title="New chat">
                   <Plus className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             </div>
 
             <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border/70 bg-background/72 px-4 py-2 lg:hidden">
+              {(account?.projects || []).map((project) => {
+                const isActive = activeProject?.id === project.id
+
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => switchProject(project.id)}
+                    className={cn(
+                      "inline-flex h-9 max-w-40 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
+                      isActive
+                        ? "border-primary/55 bg-primary/10 text-foreground"
+                        : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{project.name}</span>
+                  </button>
+                )
+              })}
               {chatState.sessions.map((session) => {
                 const SessionIcon = sessionIcon(session)
                 const isActive = activeSession.id === session.id
@@ -1558,12 +2058,7 @@ export function GeminiSparkChat() {
                     key={session.id}
                     type="button"
                     aria-pressed={isActive}
-                    onClick={() =>
-                      setChatState((current) => ({
-                        ...current,
-                        activeSessionId: session.id,
-                      }))
-                    }
+                    onClick={() => selectChatThread(session.id)}
                     className={cn(
                       "inline-flex h-9 max-w-44 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
                       isActive
@@ -1583,8 +2078,14 @@ export function GeminiSparkChat() {
                 state={workspaceState === "failed" ? "failed" : "initializing"}
                 workspace={account?.workspace}
                 error={bootstrapError}
-                onRetry={() => void refreshAccount().catch(() => undefined)}
+                onRetry={() => void refreshAccount(activeProject?.id, activeSession?.id).catch(() => undefined)}
               />
+            )}
+
+            {projectActionError && (
+              <div className="border-b border-border/70 bg-destructive/10 px-4 py-2 text-sm text-destructive sm:px-6">
+                {displayBrandText(projectActionError)}
+              </div>
             )}
 
             <div className="relative flex min-h-0 flex-1 flex-col">
@@ -1611,14 +2112,31 @@ export function GeminiSparkChat() {
 
                   {visibleMessages.map((message) => {
                     const isUser = message.role === "user"
+                    const hasInlineMedia =
+                      Boolean(message.media?.urls.length) || Boolean(message.attachments?.length)
+                    const hasAssistantDetails =
+                      !isUser && (Boolean(message.events?.length) || Boolean(message.workspaceId) || Boolean(message.model))
+                    const shouldCenterMessageRow = !isUser && !hasInlineMedia && !hasAssistantDetails
 
                     return (
                       <div
                         key={message.id}
-                        className={cn("flex items-start gap-3", isUser ? "justify-end" : "justify-start")}
+                        className={cn(
+                          "flex gap-3",
+                          isUser
+                            ? "items-start justify-end"
+                            : shouldCenterMessageRow
+                              ? "items-center justify-start"
+                              : "items-start justify-start",
+                        )}
                       >
                         {!isUser && (
-                          <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+                          <span
+                            className={cn(
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary",
+                              !shouldCenterMessageRow && "mt-1",
+                            )}
+                          >
                             {message.status === "thinking" ? (
                               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                             ) : (
@@ -1663,7 +2181,12 @@ export function GeminiSparkChat() {
                             </div>
                           )}
                           {!isUser && (
-                            <OpenClawActivity events={message.events} workspaceId={message.workspaceId} model={message.model} />
+                            <OpenClawActivity
+                              events={message.events}
+                              workspaceId={message.workspaceId}
+                              model={message.model}
+                              status={message.status}
+                            />
                           )}
                           {message.media && (
                             <div className="mt-3 grid max-w-[min(520px,100%)] gap-3">
@@ -1779,6 +2302,7 @@ export function GeminiSparkChat() {
                     <Textarea
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={handleDraftKeyDown}
                       className="min-h-11 resize-none border-0 bg-transparent px-2 py-2 text-sm leading-6 shadow-none focus-visible:ring-0"
                       placeholder={
                         !isSignedIn

@@ -20,6 +20,8 @@ type AgentRequest = {
   sessionId?: string
   clientTaskId?: string
   externalUserId?: string
+  projectAgentId?: string
+  chatThreadId?: string
 }
 
 const PUBLIC_AGENT_NAME = "Gemini Spark"
@@ -34,6 +36,10 @@ export async function POST(request: Request) {
 
     if (!message) {
       return jsonError("Message is required.")
+    }
+
+    if (!payload.projectAgentId || !payload.chatThreadId) {
+      return jsonError("Project and chat thread are required.", 400)
     }
 
     const agentApiUrl = getAgentApiUrl()

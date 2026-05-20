@@ -7,6 +7,7 @@ import { config } from "./config.js"
 import { disconnectPrisma, prisma } from "./db.js"
 import { registerMcpRoutes } from "./mcp.js"
 import { ensureOpenClawWorkspace } from "./providers.js"
+import { TaskScopeError } from "./projects.js"
 import { closeTaskQueue } from "./queue.js"
 import { cancelTask, createTask, getTaskForOwner, isTerminalStatus, serializeTask } from "./tasks.js"
 
@@ -35,11 +36,14 @@ const createTaskBodySchema = z.object({
   sessionId: z.string().optional(),
   clientTaskId: z.string().optional(),
   externalUserId: z.string().optional(),
+  projectAgentId: z.string().min(1),
+  chatThreadId: z.string().min(1),
 })
 
 const workspaceBodySchema = z
   .object({
     externalUserId: z.string().optional(),
+    projectAgentId: z.string().min(1),
   })
   .optional()
 
@@ -140,25 +144,28 @@ export function buildServer() {
     }
 
     try {
-      const workspaceId = await ensureOpenClawWorkspace(ownerId)
-      const workspace = await prisma.userWorkspace.findUnique({
+      const projectAgentId = parsed.data?.projectAgentId
+      if (!projectAgentId) {
+        return reply.code(400).send({ error: "projectAgentId is required." })
+      }
+
+      const workspaceId = await ensureOpenClawWorkspace(ownerId, projectAgentId)
+      const project = await prisma.projectAgent.findFirst({
         where: {
-          userId_provider: {
-            userId: ownerId,
-            provider: "openclaw",
-          },
+          id: projectAgentId,
+          userId: ownerId,
         },
       })
       return {
         provider: "openclaw",
-        status: workspace?.status.toLowerCase() || "ready",
-        workspaceId: workspace?.workspaceId || workspaceId,
-        runtimeSessionId: workspace?.runtimeSessionId || null,
-        runtimeAgentId: workspace?.runtimeAgentId || null,
-        initializedAt: workspace?.initializedAt?.toISOString() || null,
-        lastUsedAt: workspace?.lastUsedAt?.toISOString() || null,
-        lastSyncedAt: workspace?.lastSyncedAt?.toISOString() || null,
-        error: workspace?.error || null,
+        status: project?.status.toLowerCase() || "ready",
+        projectAgentId,
+        workspaceId: project?.workspaceId || workspaceId,
+        runtimeAgentId: project?.runtimeAgentId || null,
+        initializedAt: project?.workspaceId ? project.updatedAt.toISOString() : null,
+        lastUsedAt: project?.updatedAt.toISOString() || null,
+        lastSyncedAt: project?.updatedAt.toISOString() || null,
+        error: null,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message.replace(/\bOpenClaw\b/g, "Gemini Spark") : "Gemini Spark workspace initialization failed."
@@ -197,6 +204,10 @@ export function buildServer() {
         externalUserId: ownerId,
       })
     } catch (error) {
+      if (error instanceof TaskScopeError) {
+        return reply.code(403).send({ error: error.message })
+      }
+
       if (error instanceof PaymentRequiredError) {
         return reply.code(402).send({
           error: error.message,

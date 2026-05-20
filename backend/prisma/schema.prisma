@@ -69,6 +69,8 @@ model Task {
   clientTaskId   String?
   externalUserId String?
   sessionId      String?
+  projectAgentId String?
+  chatThreadId   String?
   message        String
   intent         TaskIntent
   status         TaskStatus   @default(QUEUED)
@@ -90,10 +92,14 @@ model Task {
   updatedAt      DateTime     @updatedAt
   events         TaskEvent[]
   artifacts      Artifact[]
+  projectAgent   ProjectAgent? @relation(fields: [projectAgentId], references: [id], onDelete: SetNull)
+  chatThread     ChatThread?   @relation(fields: [chatThreadId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([externalUserId, createdAt])
   @@index([sessionId, createdAt])
+  @@index([projectAgentId, createdAt])
+  @@index([chatThreadId, createdAt])
   @@index([clientTaskId])
   @@index([workspaceId])
   @@index([runtimeRunId])
@@ -136,11 +142,62 @@ model User {
   sessions      Session[]
   accounts      Account[]
   credit        UserCredit?
+  profile       UserProfile?
   creditTransactions CreditTransaction[]
   workspaces    UserWorkspace[]
+  projectAgents ProjectAgent[]
+  chatThreads   ChatThread[]
 
   @@unique([email])
   @@map("user")
+}
+
+model UserProfile {
+  userId        String   @id
+  nickname      String?
+  language      String   @default("zh-CN")
+  preferences   Json?
+  memorySummary String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProjectAgent {
+  id             String          @id @default(cuid())
+  userId         String
+  name           String
+  description    String?
+  status         WorkspaceStatus @default(PENDING)
+  workspaceId    String?
+  runtimeAgentId String?
+  memorySummary  String?
+  instructions   String?
+  archivedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatThreads    ChatThread[]
+  tasks          Task[]
+
+  @@index([userId, archivedAt, updatedAt])
+  @@index([workspaceId])
+}
+
+model ChatThread {
+  id             String       @id @default(cuid())
+  userId         String
+  projectAgentId String
+  title          String
+  archivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectAgent   ProjectAgent @relation(fields: [projectAgentId], references: [id], onDelete: Cascade)
+  tasks          Task[]
+
+  @@index([userId, projectAgentId, updatedAt])
+  @@index([projectAgentId, archivedAt, updatedAt])
 }
 
 model UserCredit {

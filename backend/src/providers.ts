@@ -1,7 +1,6 @@
-import { WorkspaceStatus } from "@prisma/client"
-
 import { config, requireConfig } from "./config.js"
 import { prisma } from "./db.js"
+import { markProjectWorkspaceFailed, markProjectWorkspaceReady, projectContextForRun } from "./projects.js"
 import type {
   AgentIntent,
   ClientAttachment,
@@ -16,6 +15,8 @@ const PUBLIC_AGENT_NAME = "Gemini Spark"
 type ProviderContext = {
   taskId?: string
   userId?: string
+  projectAgentId?: string
+  chatThreadId?: string
   onEvent?: (event: ProviderEvent) => Promise<void> | void
 }
 
@@ -240,6 +241,8 @@ function snapshotFromOpenClawRun(run: Record<string, unknown>, fallbackIntent: A
     runtimeRunId: openClawString(run, "runId", "id"),
     runtimeSessionId: openClawString(run, "runtimeSessionId", "sessionId"),
     workspaceId: openClawString(run, "workspaceId"),
+    projectAgentId: openClawString(run, "projectAgentId"),
+    chatThreadId: openClawString(run, "chatThreadId"),
     media:
       mediaUrls.length > 0
         ? { type: mediaKindFromUrls(mediaUrls, mediaFallbackForIntent(intent)), urls: mediaUrls }
@@ -251,71 +254,68 @@ function snapshotFromOpenClawRun(run: Record<string, unknown>, fallbackIntent: A
   }
 }
 
-export async function ensureOpenClawWorkspace(userId: string) {
-  const existing = await prisma.userWorkspace.findUnique({
+export async function ensureOpenClawWorkspace(userId: string, projectAgentId: string) {
+  const project = await prisma.projectAgent.findFirst({
     where: {
-      userId_provider: {
-        userId,
-        provider: "openclaw",
-      },
+      id: projectAgentId,
+      userId,
+      archivedAt: null,
     },
   })
 
-  if (existing?.status === WorkspaceStatus.READY && existing.workspaceId && existing.runtimeSessionId) {
-    await prisma.userWorkspace.update({
-      where: { id: existing.id },
-      data: { lastUsedAt: new Date(), error: null },
+  if (!project) {
+    throw new Error("Project agent was not found.")
+  }
+
+  if (project.status === "READY" && project.workspaceId) {
+    await prisma.projectAgent.update({
+      where: { id: project.id },
+      data: { updatedAt: new Date() },
     })
-    return existing.workspaceId
+    return project.workspaceId
   }
 
   const gatewayUrl = requireOpenClawGatewayUrl()
-  const response = await fetch(`${gatewayUrl}/workspaces`, {
-    method: "POST",
-    headers: openClawHeaders(),
-    body: JSON.stringify({ userId }),
-  })
-  const body = await parseGatewayResponse(response)
-  const workspaceId = openClawString(body, "workspaceId", "id") || ""
-  const runtimeSessionId = openClawString(body, "runtimeSessionId", "sessionId")
-  const runtimeAgentId = openClawString(body, "runtimeAgentId", "agentId")
-
-  if (!workspaceId) {
-    throw new Error("OpenClaw Gateway did not return a workspace id.")
-  }
-
-  await prisma.userWorkspace.upsert({
-    where: {
-      userId_provider: {
+  try {
+    const response = await fetch(`${gatewayUrl}/workspaces`, {
+      method: "POST",
+      headers: openClawHeaders(),
+      body: JSON.stringify({
         userId,
-        provider: "openclaw",
-      },
-    },
-    create: {
-      userId,
-      provider: "openclaw",
-      workspaceId,
-      runtimeSessionId,
-      runtimeAgentId,
-      status: WorkspaceStatus.READY,
-      initializedAt: new Date(),
-      lastUsedAt: new Date(),
-      lastSyncedAt: new Date(),
-      error: null,
-    },
-    update: {
-      workspaceId,
-      runtimeSessionId,
-      runtimeAgentId,
-      status: WorkspaceStatus.READY,
-      initializedAt: existing?.initializedAt || new Date(),
-      lastUsedAt: new Date(),
-      lastSyncedAt: new Date(),
-      error: null,
-    },
-  })
+        projectAgentId,
+        projectName: project.name,
+        projectInstructions: project.instructions,
+        projectMemorySummary: project.memorySummary,
+      }),
+    })
+    const body = await parseGatewayResponse(response)
+    const workspaceId = openClawString(body, "workspaceId", "id") || ""
+    const runtimeAgentId = openClawString(body, "runtimeAgentId", "agentId")
 
-  return workspaceId
+    if (!workspaceId) {
+      throw new Error("OpenClaw Gateway did not return a workspace id.")
+    }
+
+    await markProjectWorkspaceReady({
+      userId,
+      projectAgentId,
+      workspaceId,
+      runtimeAgentId,
+    })
+
+    return workspaceId
+  } catch (error) {
+    await markProjectWorkspaceFailed(userId, projectAgentId).catch(() => undefined)
+    throw error
+  }
+}
+
+function projectPayload(context: Awaited<ReturnType<typeof projectContextForRun>>) {
+  return {
+    userProfile: context.profile,
+    project: context.project,
+    thread: context.thread,
+  }
 }
 
 export async function callOpenClawRun(
@@ -325,23 +325,27 @@ export async function callOpenClawRun(
   attachments: ClientAttachment[] = [],
   context: ProviderContext = {},
 ): Promise<ProviderResult> {
-  if (!context.userId || !context.taskId) {
-    throw new Error("OpenClaw task submission requires an authenticated user and task id.")
+  if (!context.userId || !context.taskId || !context.projectAgentId || !context.chatThreadId) {
+    throw new Error("OpenClaw task submission requires user, project, chat thread, and task ids.")
   }
 
   const gatewayUrl = requireOpenClawGatewayUrl()
-  const workspaceId = await ensureOpenClawWorkspace(context.userId)
+  const runContext = await projectContextForRun(context.userId, context.projectAgentId, context.chatThreadId)
+  const workspaceId = await ensureOpenClawWorkspace(context.userId, context.projectAgentId)
   const response = await fetch(`${gatewayUrl}/runs`, {
     method: "POST",
     headers: openClawHeaders(),
     body: JSON.stringify({
       taskId: context.taskId,
       userId: context.userId,
+      projectAgentId: context.projectAgentId,
+      chatThreadId: context.chatThreadId,
       workspaceId,
       intent,
       message,
       history,
       attachments,
+      ...projectPayload(runContext),
     }),
   })
   const submitted = await parseGatewayResponse(response)
@@ -359,6 +363,8 @@ export async function callOpenClawRun(
     provider: PUBLIC_AGENT_NAME,
     model: PUBLIC_AGENT_NAME,
     workspaceId,
+    projectAgentId: context.projectAgentId,
+    chatThreadId: context.chatThreadId,
     taskId: runId,
     runtimeRunId: runId,
     runtimeSessionId,

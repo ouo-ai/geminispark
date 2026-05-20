@@ -19,6 +19,8 @@ export type TaskInput = {
   sessionId?: string
   clientTaskId?: string
   externalUserId?: string
+  projectAgentId?: string
+  chatThreadId?: string
 }
 
 export type AgentMedia = {
@@ -35,6 +37,8 @@ export type ProviderResult = {
   runtimeRunId?: string
   runtimeSessionId?: string
   workspaceId?: string
+  projectAgentId?: string
+  chatThreadId?: string
   media?: AgentMedia
   usage?: unknown
   raw?: unknown
@@ -50,6 +54,8 @@ export type RuntimeRunSnapshot = {
   runtimeRunId?: string
   runtimeSessionId?: string
   workspaceId?: string
+  projectAgentId?: string
+  chatThreadId?: string
   media?: AgentMedia
   artifacts?: Array<{ type?: string; text?: string; url?: string }>
   events: ProviderEvent[]

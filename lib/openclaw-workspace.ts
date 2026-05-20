@@ -1,9 +1,9 @@
 import { Prisma, WorkspaceStatus } from "@prisma/client"
 
-import { getWorkspaceStatus } from "@/lib/credits"
 import { prisma } from "@/lib/db"
+import { workspaceStatusFromProject } from "@/lib/project-agents"
 
-type WorkspaceRecord = Prisma.UserWorkspaceGetPayload<Record<string, never>>
+type ProjectRecord = Prisma.ProjectAgentGetPayload<Record<string, never>>
 
 function gatewayUrl() {
   return (process.env.OPENCLAW_GATEWAY_URL || "").replace(/\/$/, "")
@@ -41,36 +41,34 @@ async function parseGatewayResponse(response: Response) {
   return body && typeof body === "object" ? (body as Record<string, unknown>) : {}
 }
 
-function failedWorkspace(existing: WorkspaceRecord | null, error: unknown) {
+function failedWorkspace(existing: ProjectRecord | null, error: unknown) {
   return {
     provider: "openclaw",
     status: "failed",
     workspaceId: existing?.workspaceId || null,
-    runtimeSessionId: existing?.runtimeSessionId || null,
     runtimeAgentId: existing?.runtimeAgentId || null,
-    initializedAt: existing?.initializedAt?.toISOString() || null,
-    lastUsedAt: existing?.lastUsedAt?.toISOString() || null,
-    lastSyncedAt: existing?.lastSyncedAt?.toISOString() || null,
+    initializedAt: existing?.workspaceId ? existing.updatedAt.toISOString() : null,
+    lastUsedAt: existing?.updatedAt.toISOString() || null,
+    lastSyncedAt: existing?.updatedAt.toISOString() || null,
     error: errorMessage(error),
   }
 }
 
-export async function ensureOpenClawWorkspaceDirect(userId: string) {
-  const existing = await prisma.userWorkspace.findUnique({
+export async function ensureOpenClawWorkspaceDirect(userId: string, projectAgentId: string) {
+  const existing = await prisma.projectAgent.findFirst({
     where: {
-      userId_provider: {
-        userId,
-        provider: "openclaw",
-      },
+      id: projectAgentId,
+      userId,
+      archivedAt: null,
     },
   })
 
-  if (existing?.status === WorkspaceStatus.READY && existing.workspaceId && existing.runtimeSessionId) {
-    await prisma.userWorkspace.update({
+  if (existing?.status === WorkspaceStatus.READY && existing.workspaceId) {
+    const updated = await prisma.projectAgent.update({
       where: { id: existing.id },
-      data: { lastUsedAt: new Date(), error: null },
+      data: { updatedAt: new Date() },
     })
-    return getWorkspaceStatus(userId)
+    return workspaceStatusFromProject(updated)
   }
 
   const url = gatewayUrl()
@@ -86,57 +84,44 @@ export async function ensureOpenClawWorkspaceDirect(userId: string) {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({
+        userId,
+        projectAgentId,
+        projectName: existing?.name,
+        projectInstructions: existing?.instructions,
+        projectMemorySummary: existing?.memorySummary,
+      }),
       cache: "no-store",
     })
     const body = await parseGatewayResponse(response)
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : typeof body.id === "string" ? body.id : ""
-    const runtimeSessionId = typeof body.runtimeSessionId === "string" ? body.runtimeSessionId : typeof body.sessionId === "string" ? body.sessionId : undefined
     const runtimeAgentId = typeof body.runtimeAgentId === "string" ? body.runtimeAgentId : typeof body.agentId === "string" ? body.agentId : undefined
 
     if (!workspaceId) {
       throw new Error("Gemini Spark Gateway did not return a workspace id.")
     }
 
-    await prisma.userWorkspace.upsert({
-      where: {
-        userId_provider: {
-          userId,
-          provider: "openclaw",
-        },
-      },
-      create: {
-        userId,
-        provider: "openclaw",
+    if (!existing) {
+      throw new Error("Project agent was not found.")
+    }
+
+    await prisma.projectAgent.update({
+      where: { id: existing.id },
+      data: {
         workspaceId,
-        runtimeSessionId,
         runtimeAgentId,
         status: WorkspaceStatus.READY,
-        initializedAt: new Date(),
-        lastUsedAt: new Date(),
-        lastSyncedAt: new Date(),
-        error: null,
-      },
-      update: {
-        workspaceId,
-        runtimeSessionId,
-        runtimeAgentId,
-        status: WorkspaceStatus.READY,
-        initializedAt: existing?.initializedAt || new Date(),
-        lastUsedAt: new Date(),
-        lastSyncedAt: new Date(),
-        error: null,
       },
     })
 
-    return getWorkspaceStatus(userId)
+    const project = await prisma.projectAgent.findUnique({ where: { id: existing.id } })
+    return workspaceStatusFromProject(project)
   } catch (error) {
     if (existing) {
-      const updated = await prisma.userWorkspace.update({
+      const updated = await prisma.projectAgent.update({
         where: { id: existing.id },
         data: {
           status: WorkspaceStatus.FAILED,
-          error: errorMessage(error),
         },
       })
       return failedWorkspace(updated, error)
