@@ -417,6 +417,38 @@ function WorkspaceInitializationPanel({
   )
 }
 
+function SidebarLoadingRow({ collapsed, label }: { collapsed: boolean; label: string }) {
+  return (
+    <div
+      className={cn(
+        "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 rounded-lg border border-border/70 bg-background/35 px-2.5 py-2 text-muted-foreground",
+        collapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
+      )}
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+      </span>
+      <span className={cn("min-w-0 text-sm", collapsed && "lg:hidden")}>{label}</span>
+    </div>
+  )
+}
+
+function SidebarErrorRow({ collapsed, label }: { collapsed: boolean; label: string }) {
+  return (
+    <div
+      className={cn(
+        "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 rounded-lg border border-destructive/35 bg-destructive/10 px-2.5 py-2 text-destructive",
+        collapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
+      )}
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-md border border-destructive/35 bg-destructive/10 text-destructive">
+        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <span className={cn("min-w-0 text-sm", collapsed && "lg:hidden")}>{label}</span>
+    </div>
+  )
+}
+
 function OpenClawActivity({
   events,
   workspaceId,
@@ -1209,6 +1241,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       : workspaceGateState(isSignedIn, isSessionPending, account, bootstrapError)
   const isWorkspaceReady = workspaceState === "ready"
   const isWorkspaceBlocked = isSignedIn && !isWorkspaceReady && (Boolean(account) || Boolean(bootstrapError))
+  const isAccountLoading = isSessionPending || (isSignedIn && !account && !bootstrapError)
+  const isChatNavigationPending =
+    isSessionPending || (isSignedIn && (!account || !isActiveProjectBootstrapped || !isStorageReady))
+  const isChatNavigationLoading =
+    isChatNavigationPending && !bootstrapError
+  const isChatInputDisabled = isThinking || !isSignedIn || !isWorkspaceReady || isChatNavigationPending
 
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     window.requestAnimationFrame(() => {
@@ -1951,9 +1989,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 type="button"
                 onClick={() => void startNewProject()}
                 title="New project"
-                disabled={isCreatingProject || !isSignedIn}
+                disabled={isCreatingProject || !isSignedIn || !account}
               >
-                {isCreatingProject ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+                {isCreatingProject || isAccountLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
               </Button>
             ) : (
               <div className="mb-4 rounded-2xl border border-primary/15 bg-primary/[0.035] p-2.5">
@@ -1964,48 +2002,54 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   <button
                     type="button"
                     onClick={() => void startNewProject()}
-                    disabled={isCreatingProject || !isSignedIn}
+                    disabled={isCreatingProject || !isSignedIn || !account}
                     className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
                   >
-                    {isCreatingProject ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+                    {isCreatingProject || isAccountLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
                     New
                   </button>
                 </div>
 
                 <div className="grid gap-1">
-                  {(account?.projects || []).map((project) => {
-                    const isActive = activeProject?.id === project.id
+                  {isAccountLoading ? (
+                    <SidebarLoadingRow collapsed={false} label="Loading projects..." />
+                  ) : !account && bootstrapError ? (
+                    <SidebarErrorRow collapsed={false} label="Retry required" />
+                  ) : (
+                    (account?.projects || []).map((project) => {
+                      const isActive = activeProject?.id === project.id
 
-                    return (
-                      <button
-                        key={project.id}
-                        type="button"
-                        aria-pressed={isActive}
-                        onClick={() => switchProject(project.id)}
-                        className={cn(
-                          "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition",
-                          isActive
-                            ? "border-primary/35 bg-background/82 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-                            : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-background/55 hover:text-foreground",
-                        )}
-                      >
-                        <span
+                      return (
+                        <button
+                          key={project.id}
+                          type="button"
+                          aria-pressed={isActive}
+                          onClick={() => switchProject(project.id)}
                           className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-md border",
-                            isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
+                            "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition",
+                            isActive
+                              ? "border-primary/35 bg-background/82 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                              : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-background/55 hover:text-foreground",
                           )}
                         >
-                          <Bot className="h-4 w-4" aria-hidden="true" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold leading-5">{project.name}</span>
-                          <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
-                            {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
+                          <span
+                            className={cn(
+                              "flex h-8 w-8 items-center justify-center rounded-md border",
+                              isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
+                            )}
+                          >
+                            <Bot className="h-4 w-4" aria-hidden="true" />
                           </span>
-                        </span>
-                      </button>
-                    )
-                  })}
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold leading-5">{project.name}</span>
+                            <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
+                              {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
                 </div>
               </div>
             )}
@@ -2019,9 +2063,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 type="button"
                 onClick={() => void startNewChat()}
                 title="New chat"
-                disabled={isCreatingThread || !isSignedIn || !activeProject}
+                disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
               >
-                {isCreatingThread ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+                {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
               </Button>
             ) : (
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
@@ -2029,15 +2073,21 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Chats
                   </p>
-                  <p className="mt-1 truncate text-xs text-muted-foreground/70">{activeProject?.name || "No project selected"}</p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground/70">
+                    {isChatNavigationLoading
+                      ? "Loading chats..."
+                      : isChatNavigationPending
+                        ? "Retry required"
+                        : activeProject?.name || "No project selected"}
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => void startNewChat()}
-                  disabled={isCreatingThread || !isSignedIn || !activeProject}
+                  disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
                   className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
                 >
-                  {isCreatingThread ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+                  {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
                   New
                 </button>
               </div>
@@ -2050,7 +2100,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 isSessionPanelCollapsed && "lg:w-11 lg:border-t-0 lg:pt-0",
               )}
             >
-              {chatState.sessions.map((session) => {
+              {isChatNavigationLoading ? (
+                <SidebarLoadingRow collapsed={isSessionPanelCollapsed} label="Loading chats..." />
+              ) : isChatNavigationPending ? (
+                <SidebarErrorRow collapsed={isSessionPanelCollapsed} label="Retry required" />
+              ) : (
+                chatState.sessions.map((session) => {
                 const SessionIcon = sessionIcon(session)
                 const isActive = activeSession.id === session.id
 
@@ -2085,7 +2140,8 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     </span>
                   </button>
                 )
-              })}
+                })
+              )}
             </div>
           </aside>
 
@@ -2099,7 +2155,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   <p className="text-xs text-muted-foreground">Project agent</p>
                   <h1 className="truncate text-sm font-semibold text-foreground">
                     {activeProject?.name || AGENT_BRAND}
-                    {activeSession?.title ? <span className="font-normal text-muted-foreground"> / {activeSession.title}</span> : null}
+                    {isChatNavigationPending ? (
+                      <span className="font-normal text-muted-foreground">
+                        {" / "}
+                        {isChatNavigationLoading ? "Loading chats..." : "Retry required"}
+                      </span>
+                    ) : activeSession?.title ? (
+                      <span className="font-normal text-muted-foreground"> / {activeSession.title}</span>
+                    ) : null}
                   </h1>
                 </div>
               </div>
@@ -2127,56 +2190,88 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     Sign in
                   </Button>
                 )}
-                <Button size="icon-sm" rounded="lg" className="lg:hidden" type="button" onClick={() => void startNewChat()} title="New chat">
-                  <Plus className="h-4 w-4" aria-hidden="true" />
+                <Button
+                  size="icon-sm"
+                  rounded="lg"
+                  className="lg:hidden"
+                  type="button"
+                  onClick={() => void startNewChat()}
+                  title="New chat"
+                  disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
+                >
+                  {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
                 </Button>
               </div>
             </div>
 
             <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border/70 bg-background/72 px-4 py-2 lg:hidden">
-              {(account?.projects || []).map((project) => {
-                const isActive = activeProject?.id === project.id
+              {isAccountLoading ? (
+                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-border bg-background/60 px-3 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                  Loading projects...
+                </span>
+              ) : !account && bootstrapError ? (
+                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                  Retry required
+                </span>
+              ) : (
+                (account?.projects || []).map((project) => {
+                  const isActive = activeProject?.id === project.id
 
-                return (
-                  <button
-                    key={project.id}
-                    type="button"
-                    aria-pressed={isActive}
-                    onClick={() => switchProject(project.id)}
-                    className={cn(
-                      "inline-flex h-9 max-w-40 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
-                      isActive
-                        ? "border-primary/55 bg-primary/10 text-foreground"
-                        : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    <span className="truncate">{project.name}</span>
-                  </button>
-                )
-              })}
-              {chatState.sessions.map((session) => {
-                const SessionIcon = sessionIcon(session)
-                const isActive = activeSession.id === session.id
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => switchProject(project.id)}
+                      className={cn(
+                        "inline-flex h-9 max-w-40 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
+                        isActive
+                          ? "border-primary/55 bg-primary/10 text-foreground"
+                          : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{project.name}</span>
+                    </button>
+                  )
+                })
+              )}
+              {isChatNavigationLoading ? (
+                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-border bg-background/60 px-3 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+                  Loading chats...
+                </span>
+              ) : isChatNavigationPending ? (
+                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                  Retry required
+                </span>
+              ) : (
+                chatState.sessions.map((session) => {
+                  const SessionIcon = sessionIcon(session)
+                  const isActive = activeSession.id === session.id
 
-                return (
-                  <button
-                    key={session.id}
-                    type="button"
-                    aria-pressed={isActive}
-                    onClick={() => selectChatThread(session.id)}
-                    className={cn(
-                      "inline-flex h-9 max-w-44 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
-                      isActive
-                        ? "border-primary/55 bg-primary/10 text-foreground"
-                        : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <SessionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    <span className="truncate">{session.title}</span>
-                  </button>
-                )
-              })}
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => selectChatThread(session.id)}
+                      className={cn(
+                        "inline-flex h-9 max-w-44 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
+                        isActive
+                          ? "border-primary/55 bg-primary/10 text-foreground"
+                          : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <SessionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{session.title}</span>
+                    </button>
+                  )
+                })
+              )}
             </div>
 
             {isWorkspaceBlocked && (
@@ -2202,7 +2297,31 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     hasConversationStarted ? "justify-start" : "justify-center",
                   )}
                 >
-                  {!hasConversationStarted && (
+                  {isChatNavigationLoading ? (
+                    <div className="mx-auto max-w-2xl text-center">
+                      <span className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                      </span>
+                      <p className="text-2xl font-semibold tracking-display text-foreground sm:text-3xl">
+                        Loading your chats
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                        Restoring the selected project and thread from Gemini Spark.
+                      </p>
+                    </div>
+                  ) : isChatNavigationPending ? (
+                    <div className="mx-auto max-w-2xl text-center">
+                      <span className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+                        <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                      </span>
+                      <p className="text-2xl font-semibold tracking-display text-foreground sm:text-3xl">
+                        Chats need attention
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                        Retry workspace initialization before continuing.
+                      </p>
+                    </div>
+                  ) : !hasConversationStarted && (
                     <div className="mx-auto max-w-2xl text-center">
                       <span className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
                         <Sparkles className="h-5 w-5" aria-hidden="true" />
@@ -2216,7 +2335,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     </div>
                   )}
 
-                  {visibleMessages.map((message) => {
+                  {!isChatNavigationPending && visibleMessages.map((message) => {
                     const isUser = message.role === "user"
                     const hasInlineMedia =
                       Boolean(message.media?.urls.length) || Boolean(message.attachments?.length)
@@ -2342,14 +2461,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     </div>
                   )}
 
-                  {!hasConversationStarted && (
+                  {!hasConversationStarted && !isChatNavigationPending && (
                     <div className="mb-3 flex flex-wrap justify-center gap-2">
                       {quickPrompts.map((prompt) => (
                         <button
                           key={prompt}
                           type="button"
                           onClick={() => setDraft(prompt)}
-                          disabled={isThinking || !isSignedIn || !isWorkspaceReady}
+                          disabled={isChatInputDisabled}
                           className="rounded-full border border-border bg-background/70 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {prompt}
@@ -2400,7 +2519,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       rounded="xl"
                       className="h-11 gap-2 bg-transparent"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={isThinking || !isSignedIn || !isWorkspaceReady}
+                      disabled={isChatInputDisabled}
                     >
                       <Paperclip className="h-4 w-4" aria-hidden="true" />
                       Attach
@@ -2413,14 +2532,16 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       placeholder={
                         !isSignedIn
                           ? "Sign in to chat with Gemini Spark..."
-                          : isWorkspaceReady
+                          : isChatNavigationLoading
+                            ? "Loading Gemini Spark chats..."
+                            : isWorkspaceReady
                             ? "Ask Gemini Spark for text, image, or video work..."
                             : "Gemini Spark workspace is initializing..."
                       }
                       aria-label="Message Gemini Spark"
-                      disabled={isThinking || !isSignedIn || !isWorkspaceReady}
+                      disabled={isChatInputDisabled}
                     />
-                    <Button type="submit" rounded="xl" className="h-11 gap-2" disabled={isThinking || !isSignedIn || !isWorkspaceReady || !draft.trim()}>
+                    <Button type="submit" rounded="xl" className="h-11 gap-2" disabled={isChatInputDisabled || !draft.trim()}>
                       {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       {isThinking ? "Thinking" : "Send"}
                     </Button>
