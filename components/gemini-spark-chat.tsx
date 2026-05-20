@@ -1186,7 +1186,7 @@ export function GeminiSparkChat() {
       ? ("initializing" as const)
       : workspaceGateState(isSignedIn, isSessionPending, account, bootstrapError)
   const isWorkspaceReady = workspaceState === "ready"
-  const isWorkspaceBlocked = isSignedIn && !isWorkspaceReady
+  const isWorkspaceBlocked = isSignedIn && !isWorkspaceReady && (Boolean(account) || Boolean(bootstrapError))
 
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     window.requestAnimationFrame(() => {

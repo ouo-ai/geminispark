@@ -80,10 +80,12 @@ export async function GET(request: Request) {
       ensureUserCredit(session.user.id),
       ensureDefaultProjectBundle(session.user.id, requestedProjectId, requestedThreadId),
     ])
-    const initializedWorkspace =
-      (await ensureWorkspaceViaAgentApi(session.user.id, bundle.activeProject.id)) ||
-      (await ensureOpenClawWorkspaceDirect(session.user.id, bundle.activeProject.id)) ||
-      bundle.workspace
+    const hasReadyWorkspace = bundle.workspace.status === "ready" && Boolean(bundle.workspace.workspaceId)
+    const initializedWorkspace = hasReadyWorkspace
+      ? bundle.workspace
+      : (await ensureWorkspaceViaAgentApi(session.user.id, bundle.activeProject.id)) ||
+        (await ensureOpenClawWorkspaceDirect(session.user.id, bundle.activeProject.id)) ||
+        bundle.workspace
     const messages = (await getThreadMessagesForUser(session.user.id, bundle.activeThread.id)) || []
 
     return Response.json({

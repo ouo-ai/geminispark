@@ -83,15 +83,17 @@ export async function ensureUserProfile(userId: string) {
 }
 
 export async function ensureDefaultProjectBundle(userId: string, requestedProjectId?: string | null, requestedThreadId?: string | null) {
-  await ensureUserProfile(userId)
-
-  let projects = await prisma.projectAgent.findMany({
-    where: {
-      userId,
-      archivedAt: null,
-    },
-    orderBy: [{ updatedAt: "desc" }, { createdAt: "asc" }],
-  })
+  const [profile, initialProjects] = await Promise.all([
+    ensureUserProfile(userId),
+    prisma.projectAgent.findMany({
+      where: {
+        userId,
+        archivedAt: null,
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "asc" }],
+    }),
+  ])
+  let projects = initialProjects
 
   if (projects.length === 0) {
     const created = await prisma.projectAgent.create({
@@ -138,7 +140,6 @@ export async function ensureDefaultProjectBundle(userId: string, requestedProjec
 
   const activeThread =
     (requestedThreadId && threads.find((thread) => thread.id === requestedThreadId)) || threads[0]
-  const profile = await ensureUserProfile(userId)
 
   return {
     profile: serializeProfile(profile),
