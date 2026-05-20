@@ -210,12 +210,30 @@ export async function updateProjectAgent(userId: string, projectAgentId: string,
     return null
   }
 
-  const updated = await prisma.projectAgent.update({
-    where: { id: project.id },
-    data: {
-      name: data.name ? data.name.trim().slice(0, 80) : undefined,
-      archivedAt: data.archived ? new Date() : undefined,
-    },
+  const nextName = data.name ? data.name.replace(/\s+/g, " ").trim().slice(0, 80) : undefined
+  const archivedAt = data.archived ? new Date() : undefined
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const nextProject = await tx.projectAgent.update({
+      where: { id: project.id },
+      data: {
+        name: nextName,
+        archivedAt,
+      },
+    })
+
+    if (archivedAt) {
+      await tx.chatThread.updateMany({
+        where: {
+          userId,
+          projectAgentId: project.id,
+          archivedAt: null,
+        },
+        data: { archivedAt },
+      })
+    }
+
+    return nextProject
   })
 
   return serializeProject(updated)
@@ -265,8 +283,13 @@ export async function updateChatThread(userId: string, threadId: string, data: {
   const updated = await prisma.chatThread.update({
     where: { id: thread.id },
     data: {
-      title: data.title ? data.title.trim().slice(0, 80) : undefined,
+      title: data.title ? data.title.replace(/\s+/g, " ").trim().slice(0, 80) : undefined,
       archivedAt: data.archived ? new Date() : undefined,
+      projectAgent: {
+        update: {
+          updatedAt: new Date(),
+        },
+      },
     },
   })
 

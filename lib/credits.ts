@@ -1,4 +1,5 @@
 import {
+  BillingInterval as PrismaBillingInterval,
   BillingPlan,
   CreditBucket,
   CreditTransactionType,
@@ -6,21 +7,38 @@ import {
   SubscriptionStatus,
 } from "@prisma/client"
 
-import { addMonths, BILLING_PLANS, INITIAL_FREE_CREDITS, type PaidPlan } from "@/lib/billing-config"
+import {
+  addMonths,
+  BILLING_PLANS,
+  CREDIT_PACKS,
+  INITIAL_FREE_CREDITS,
+  type BillingInterval,
+  type CreditPack,
+  type PaidPlan,
+} from "@/lib/billing-config"
 import { prisma } from "@/lib/db"
 
 const ACTIVE_STATUSES = new Set<SubscriptionStatus>([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING])
 
 type CreditRecord = Prisma.UserCreditGetPayload<Record<string, never>>
 
-function planCredits(plan: BillingPlan) {
-  if (plan === BillingPlan.STARTUP) return BILLING_PLANS.STARTUP.monthlyCredits
-  if (plan === BillingPlan.PRO) return BILLING_PLANS.PRO.monthlyCredits
+function cycleMonths(interval: PrismaBillingInterval | null | undefined) {
+  return interval === PrismaBillingInterval.YEAR ? 12 : 1
+}
+
+function planCredits(plan: BillingPlan, interval?: PrismaBillingInterval | null) {
+  const multiplier = cycleMonths(interval)
+  if (plan === BillingPlan.STARTUP) return BILLING_PLANS.STARTUP.monthlyCredits * multiplier
+  if (plan === BillingPlan.PRO) return BILLING_PLANS.PRO.monthlyCredits * multiplier
   return 0
 }
 
 function toBillingPlan(plan: PaidPlan) {
   return plan === "STARTUP" ? BillingPlan.STARTUP : BillingPlan.PRO
+}
+
+function toPrismaBillingInterval(interval: BillingInterval) {
+  return interval === "year" ? PrismaBillingInterval.YEAR : PrismaBillingInterval.MONTH
 }
 
 function toJson(value: unknown) {
@@ -33,6 +51,7 @@ function serializeCredit(credit: CreditRecord) {
     periodCreditsRemaining: credit.periodCreditsRemaining,
     totalCredits: credit.freeCreditsRemaining + credit.periodCreditsRemaining,
     plan: credit.plan.toLowerCase(),
+    billingInterval: credit.billingInterval?.toLowerCase() || null,
     subscriptionStatus: credit.subscriptionStatus.toLowerCase(),
     creditsPeriodStart: credit.creditsPeriodStart?.toISOString() || null,
     creditsPeriodEnd: credit.creditsPeriodEnd?.toISOString() || null,
@@ -40,8 +59,8 @@ function serializeCredit(credit: CreditRecord) {
   }
 }
 
-function nextMonthlyGrantDates(now = new Date()) {
-  const periodEnd = addMonths(now, 1)
+function nextGrantDates(interval: PrismaBillingInterval | null | undefined, now = new Date()) {
+  const periodEnd = addMonths(now, cycleMonths(interval))
   return {
     creditsPeriodStart: now,
     creditsPeriodEnd: periodEnd,
@@ -50,8 +69,9 @@ function nextMonthlyGrantDates(now = new Date()) {
 }
 
 async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditRecord, now = new Date()) {
-  const monthlyCredits = planCredits(credit.plan)
-  if (!ACTIVE_STATUSES.has(credit.subscriptionStatus) || monthlyCredits <= 0) {
+  const interval = credit.billingInterval || PrismaBillingInterval.MONTH
+  const cycleCredits = planCredits(credit.plan, interval)
+  if (!ACTIVE_STATUSES.has(credit.subscriptionStatus) || cycleCredits <= 0) {
     return credit
   }
 
@@ -59,11 +79,11 @@ async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditReco
     return credit
   }
 
-  const dates = nextMonthlyGrantDates(now)
+  const dates = nextGrantDates(interval, now)
   const updated = await tx.userCredit.update({
     where: { userId: credit.userId },
     data: {
-      periodCreditsRemaining: monthlyCredits,
+      periodCreditsRemaining: cycleCredits,
       ...dates,
     },
   })
@@ -74,11 +94,11 @@ async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditReco
         userId: credit.userId,
         type: CreditTransactionType.GRANT,
         bucket: CreditBucket.PERIOD,
-        amount: monthlyCredits,
+        amount: cycleCredits,
         balanceAfterFree: updated.freeCreditsRemaining,
         balanceAfterPeriod: updated.periodCreditsRemaining,
-        description: "Monthly plan credits granted.",
-        idempotencyKey: `credit-period:${credit.userId}:${dates.creditsPeriodStart.toISOString()}`,
+        description: interval === PrismaBillingInterval.YEAR ? "Annual plan credits granted." : "Monthly plan credits granted.",
+        idempotencyKey: `credit-period:${credit.userId}:${interval.toLowerCase()}:${dates.creditsPeriodStart.toISOString()}`,
       },
     ],
     skipDuplicates: true,
@@ -183,6 +203,7 @@ export async function ensureStripeCustomer(userId: string, createCustomer: () =>
 export async function activateSubscriptionCredits(params: {
   userId: string
   plan: PaidPlan
+  interval: BillingInterval
   status: SubscriptionStatus
   stripeCustomerId?: string | null
   stripeSubscriptionId?: string | null
@@ -199,21 +220,28 @@ export async function activateSubscriptionCredits(params: {
       }))
 
     const nextPlan = toBillingPlan(params.plan)
+    const nextInterval = toPrismaBillingInterval(params.interval)
     const isActive = ACTIVE_STATUSES.has(params.status)
-    const monthlyCredits = planCredits(nextPlan)
+    const cycleCredits = planCredits(nextPlan, nextInterval)
+    const now = new Date()
     const shouldGrant =
       isActive &&
-      (credit.plan !== nextPlan || !ACTIVE_STATUSES.has(credit.subscriptionStatus) || credit.periodCreditsRemaining <= 0)
-    const dates = shouldGrant ? nextMonthlyGrantDates() : null
+      (credit.plan !== nextPlan ||
+        credit.billingInterval !== nextInterval ||
+        !ACTIVE_STATUSES.has(credit.subscriptionStatus) ||
+        !credit.nextCreditGrantAt ||
+        credit.nextCreditGrantAt <= now)
+    const dates = shouldGrant ? nextGrantDates(nextInterval, now) : null
 
     const updated = await tx.userCredit.update({
       where: { userId: params.userId },
       data: {
         plan: isActive ? nextPlan : BillingPlan.FREE,
+        billingInterval: isActive ? nextInterval : null,
         subscriptionStatus: params.status,
         stripeCustomerId: params.stripeCustomerId || credit.stripeCustomerId,
         stripeSubscriptionId: params.stripeSubscriptionId || credit.stripeSubscriptionId,
-        periodCreditsRemaining: isActive ? (shouldGrant ? monthlyCredits : undefined) : 0,
+        periodCreditsRemaining: isActive ? (shouldGrant ? cycleCredits : undefined) : 0,
         creditsPeriodStart: isActive ? dates?.creditsPeriodStart : null,
         creditsPeriodEnd: isActive ? dates?.creditsPeriodEnd : null,
         nextCreditGrantAt: isActive ? dates?.nextCreditGrantAt : null,
@@ -227,13 +255,16 @@ export async function activateSubscriptionCredits(params: {
             userId: params.userId,
             type: CreditTransactionType.GRANT,
             bucket: CreditBucket.PERIOD,
-            amount: monthlyCredits,
+            amount: cycleCredits,
             balanceAfterFree: updated.freeCreditsRemaining,
             balanceAfterPeriod: updated.periodCreditsRemaining,
-            description: "Plan credits granted after subscription activation.",
+            description:
+              params.interval === "year"
+                ? "Annual plan credits granted after subscription activation."
+                : "Monthly plan credits granted after subscription activation.",
             stripeEventId: params.stripeEventId,
             idempotencyKey: params.stripeEventId ? `stripe:${params.stripeEventId}:period-grant` : undefined,
-            metadata: toJson({ plan: params.plan }),
+            metadata: toJson({ plan: params.plan, interval: params.interval, credits: cycleCredits }),
           },
         ],
         skipDuplicates: true,
@@ -241,6 +272,85 @@ export async function activateSubscriptionCredits(params: {
     }
 
     return serializeCredit(updated)
+  })
+}
+
+export async function grantCreditPackCredits(params: {
+  userId: string
+  pack: CreditPack
+  stripeCustomerId?: string | null
+  stripeCheckoutSessionId: string
+  stripePaymentIntentId?: string | null
+  stripeEventId?: string
+}) {
+  return prisma.$transaction(async (tx) => {
+    const pack = CREDIT_PACKS[params.pack]
+    const idempotencyKey = `stripe-checkout:${params.stripeCheckoutSessionId}:credit-pack`
+    const existingTransaction = await tx.creditTransaction.findUnique({
+      where: { idempotencyKey },
+    })
+
+    let credit = await tx.userCredit.findUnique({ where: { userId: params.userId } })
+
+    if (!credit) {
+      credit = await tx.userCredit.create({
+        data: {
+          userId: params.userId,
+          freeCreditsRemaining: INITIAL_FREE_CREDITS,
+          stripeCustomerId: params.stripeCustomerId || undefined,
+        },
+      })
+
+      await tx.creditTransaction.createMany({
+        data: [
+          {
+            userId: params.userId,
+            type: CreditTransactionType.GRANT,
+            bucket: CreditBucket.FREE,
+            amount: INITIAL_FREE_CREDITS,
+            balanceAfterFree: credit.freeCreditsRemaining,
+            balanceAfterPeriod: credit.periodCreditsRemaining,
+            description: "Initial free credits granted.",
+            idempotencyKey: `initial-free:${params.userId}`,
+          },
+        ],
+        skipDuplicates: true,
+      })
+    }
+
+    if (existingTransaction) {
+      return serializeCredit(credit)
+    }
+
+    credit = await tx.userCredit.update({
+      where: { userId: params.userId },
+      data: {
+        freeCreditsRemaining: { increment: pack.credits },
+        stripeCustomerId: params.stripeCustomerId || credit.stripeCustomerId,
+      },
+    })
+
+    await tx.creditTransaction.create({
+      data: {
+        userId: params.userId,
+        type: CreditTransactionType.GRANT,
+        bucket: CreditBucket.FREE,
+        amount: pack.credits,
+        balanceAfterFree: credit.freeCreditsRemaining,
+        balanceAfterPeriod: credit.periodCreditsRemaining,
+        description: `${pack.label} credit pack purchased.`,
+        stripeEventId: params.stripeEventId,
+        idempotencyKey,
+        metadata: toJson({
+          pack: params.pack,
+          credits: pack.credits,
+          stripeCheckoutSessionId: params.stripeCheckoutSessionId,
+          stripePaymentIntentId: params.stripePaymentIntentId,
+        }),
+      },
+    })
+
+    return serializeCredit(credit)
   })
 }
 

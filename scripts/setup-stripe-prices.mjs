@@ -9,7 +9,8 @@ const PRICE_CONFIGS = [
     envKey: "STRIPE_STARTUP_MONTHLY_PRICE_ID",
     lookupKey: "geminispark_startup_monthly",
     productName: "GeminiSpark Startup",
-    plan: "STARTUP",
+    productKey: "STARTUP",
+    metadata: { plan: "STARTUP", interval: "month" },
     unitAmount: 10000,
     interval: "month",
   },
@@ -17,7 +18,8 @@ const PRICE_CONFIGS = [
     envKey: "STRIPE_STARTUP_YEARLY_PRICE_ID",
     lookupKey: "geminispark_startup_yearly",
     productName: "GeminiSpark Startup",
-    plan: "STARTUP",
+    productKey: "STARTUP",
+    metadata: { plan: "STARTUP", interval: "year" },
     unitAmount: 100000,
     interval: "year",
   },
@@ -25,7 +27,8 @@ const PRICE_CONFIGS = [
     envKey: "STRIPE_PRO_MONTHLY_PRICE_ID",
     lookupKey: "geminispark_pro_monthly",
     productName: "GeminiSpark Pro",
-    plan: "PRO",
+    productKey: "PRO",
+    metadata: { plan: "PRO", interval: "month" },
     unitAmount: 20000,
     interval: "month",
   },
@@ -33,9 +36,34 @@ const PRICE_CONFIGS = [
     envKey: "STRIPE_PRO_YEARLY_PRICE_ID",
     lookupKey: "geminispark_pro_yearly",
     productName: "GeminiSpark Pro",
-    plan: "PRO",
+    productKey: "PRO",
+    metadata: { plan: "PRO", interval: "year" },
     unitAmount: 200000,
     interval: "year",
+  },
+  {
+    envKey: "STRIPE_CREDIT_PACK_BOOST_50_PRICE_ID",
+    lookupKey: "geminispark_credit_pack_boost_50",
+    productName: "GeminiSpark Credit Packs",
+    productKey: "CREDIT_PACKS",
+    metadata: { checkoutKind: "credit_pack", pack: "BOOST_50", credits: "50" },
+    unitAmount: 6000,
+  },
+  {
+    envKey: "STRIPE_CREDIT_PACK_STUDIO_150_PRICE_ID",
+    lookupKey: "geminispark_credit_pack_studio_150",
+    productName: "GeminiSpark Credit Packs",
+    productKey: "CREDIT_PACKS",
+    metadata: { checkoutKind: "credit_pack", pack: "STUDIO_150", credits: "150" },
+    unitAmount: 15000,
+  },
+  {
+    envKey: "STRIPE_CREDIT_PACK_LAUNCH_400_PRICE_ID",
+    lookupKey: "geminispark_credit_pack_launch_400",
+    productName: "GeminiSpark Credit Packs",
+    productKey: "CREDIT_PACKS",
+    metadata: { checkoutKind: "credit_pack", pack: "LAUNCH_400", credits: "400" },
+    unitAmount: 36000,
   },
 ]
 
@@ -103,18 +131,18 @@ async function findPriceByLookupKey(stripe, lookupKey) {
 }
 
 async function ensureProduct(stripe, productsByPlan, config) {
-  if (productsByPlan.has(config.plan)) {
-    return productsByPlan.get(config.plan)
+  if (productsByPlan.has(config.productKey)) {
+    return productsByPlan.get(config.productKey)
   }
 
   const product = await stripe.products.create({
     name: config.productName,
     metadata: {
       app: "geminispark",
-      plan: config.plan,
+      productKey: config.productKey,
     },
   })
-  productsByPlan.set(config.plan, product.id)
+  productsByPlan.set(config.productKey, product.id)
   return product.id
 }
 
@@ -132,26 +160,30 @@ async function main() {
     const existing = await findPriceByLookupKey(stripe, config.lookupKey)
     if (existing) {
       envUpdates[config.envKey] = existing.id
-      productsByPlan.set(config.plan, typeof existing.product === "string" ? existing.product : existing.product.id)
+      productsByPlan.set(config.productKey, typeof existing.product === "string" ? existing.product : existing.product.id)
       console.log(`${config.envKey}: reused ${existing.id}`)
       continue
     }
 
     const productId = await ensureProduct(stripe, productsByPlan, config)
-    const price = await stripe.prices.create({
+    const priceConfig = {
       currency: "usd",
       lookup_key: config.lookupKey,
       product: productId,
       unit_amount: config.unitAmount,
-      recurring: {
-        interval: config.interval,
-      },
       metadata: {
         app: "geminispark",
-        plan: config.plan,
-        interval: config.interval,
+        ...config.metadata,
       },
-    })
+    }
+
+    if (config.interval) {
+      priceConfig.recurring = {
+        interval: config.interval,
+      }
+    }
+
+    const price = await stripe.prices.create(priceConfig)
 
     envUpdates[config.envKey] = price.id
     console.log(`${config.envKey}: created ${price.id}`)

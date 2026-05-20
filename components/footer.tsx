@@ -4,6 +4,7 @@ import Image from "next/image"
 const footerLinks = {
   Product: [
     { label: "Gemini Spark Chat", href: "/gemini-spark" },
+    { label: "Pricing", href: "/pricing" },
     { label: "Features", href: "/#features" },
     { label: "Use Cases", href: "/#use-cases" },
   ],
@@ -64,9 +65,12 @@ export function Footer() {
           <p className="text-[10px] sm:text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} Gemini Spark. All rights reserved.
           </p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground/70">
-            Independent AI agent workspace site for geminispark.ai.
-          </p>
+          <a
+            href="mailto:support@geminispark.ai"
+            className="text-[10px] sm:text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            support@geminispark.ai
+          </a>
         </div>
       </div>
     </footer>

@@ -36,6 +36,11 @@ enum BillingPlan {
   PRO
 }
 
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
 enum SubscriptionStatus {
   NONE
   ACTIVE
@@ -205,6 +210,7 @@ model UserCredit {
   freeCreditsRemaining   Int                @default(2)
   periodCreditsRemaining Int                @default(0)
   plan                   BillingPlan        @default(FREE)
+  billingInterval        BillingInterval?
   subscriptionStatus     SubscriptionStatus @default(NONE)
   stripeCustomerId       String?            @unique
   stripeSubscriptionId   String?            @unique

@@ -1,6 +1,15 @@
 import Stripe from "stripe"
 
-import { isBillingInterval, isPaidPlan, stripePriceEnvName, type BillingInterval, type PaidPlan } from "@/lib/billing-config"
+import {
+  isBillingInterval,
+  isCreditPack,
+  isPaidPlan,
+  stripeCreditPackPriceEnvName,
+  stripePriceEnvName,
+  type BillingInterval,
+  type CreditPack,
+  type PaidPlan,
+} from "@/lib/billing-config"
 
 let stripeClient: Stripe | undefined
 
@@ -25,6 +34,14 @@ export function parseCheckoutPlan(value: unknown): PaidPlan {
   return value
 }
 
+export function parseCheckoutCreditPack(value: unknown): CreditPack {
+  if (!isCreditPack(value)) {
+    throw new Error("Unsupported credit pack.")
+  }
+
+  return value
+}
+
 export function parseCheckoutInterval(value: unknown): BillingInterval {
   if (!isBillingInterval(value)) {
     throw new Error("Unsupported billing interval.")
@@ -35,6 +52,16 @@ export function parseCheckoutInterval(value: unknown): BillingInterval {
 
 export function getStripePriceId(plan: PaidPlan, interval: BillingInterval) {
   const envName = stripePriceEnvName(plan, interval)
+  const priceId = process.env[envName]
+  if (!priceId) {
+    throw new Error(`${envName} is not configured.`)
+  }
+
+  return priceId
+}
+
+export function getStripeCreditPackPriceId(pack: CreditPack) {
+  const envName = stripeCreditPackPriceEnvName(pack)
   const priceId = process.env[envName]
   if (!priceId) {
     throw new Error(`${envName} is not configured.`)

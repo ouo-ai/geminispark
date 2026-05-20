@@ -12,9 +12,11 @@ import {
   ImageIcon,
   Loader2,
   MessageSquare,
+  MoreHorizontal,
   Paperclip,
   ChevronLeft,
   ChevronRight,
+  Pencil,
   Plus,
   RefreshCw,
   Send,
@@ -22,12 +24,23 @@ import {
   ShieldCheck,
   Sparkles,
   Terminal,
+  Trash2,
   User,
   Video,
   Wallet,
   X,
 } from "lucide-react"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -37,8 +50,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
-import { BILLING_PLANS, type BillingInterval, type PaidPlan } from "@/lib/billing-config"
+import { BILLING_PLANS, CREDIT_COSTS, CREDIT_PACKS, type BillingInterval, type CreditPack, type PaidPlan } from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
@@ -150,6 +170,12 @@ type ChatThread = {
   updatedAt: string
 }
 
+type ManagementTarget = {
+  type: "project" | "thread"
+  id: string
+  label: string
+}
+
 type AccountBootstrap = {
   profile?: {
     nickname?: string | null
@@ -235,6 +261,14 @@ const thinkingLines = [
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function creditEquivalents(credits: number) {
+  return {
+    chats: Math.floor(credits / CREDIT_COSTS.text),
+    images: Math.floor(credits / CREDIT_COSTS.image),
+    videos: Math.floor(credits / CREDIT_COSTS["text-to-video"]),
+  }
 }
 
 function agentApiUrl(path: string) {
@@ -652,6 +686,74 @@ async function createThreadRequest(projectAgentId: string, title = "New chat") {
 
   if (!response.ok || !data.thread) {
     throw new Error(data.error || "Chat could not be created.")
+  }
+
+  return data.thread
+}
+
+async function renameProjectRequest(projectAgentId: string, name: string) {
+  const response = await fetch(agentApiUrl(`/projects/${encodeURIComponent(projectAgentId)}`), {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name }),
+  })
+  const data = await readJsonBody<{ project?: ProjectAgent }>(response, "Project could not be renamed.")
+
+  if (!response.ok || !data.project) {
+    throw new Error(data.error || "Project could not be renamed.")
+  }
+
+  return data.project
+}
+
+async function deleteProjectRequest(projectAgentId: string) {
+  const response = await fetch(agentApiUrl(`/projects/${encodeURIComponent(projectAgentId)}`), {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+    },
+  })
+  const data = await readJsonBody<{ project?: ProjectAgent }>(response, "Project could not be deleted.")
+
+  if (!response.ok || !data.project) {
+    throw new Error(data.error || "Project could not be deleted.")
+  }
+
+  return data.project
+}
+
+async function renameThreadRequest(threadId: string, title: string) {
+  const response = await fetch(agentApiUrl(`/threads/${encodeURIComponent(threadId)}`), {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ title }),
+  })
+  const data = await readJsonBody<{ thread?: ChatThread }>(response, "Chat could not be renamed.")
+
+  if (!response.ok || !data.thread) {
+    throw new Error(data.error || "Chat could not be renamed.")
+  }
+
+  return data.thread
+}
+
+async function deleteThreadRequest(threadId: string) {
+  const response = await fetch(agentApiUrl(`/threads/${encodeURIComponent(threadId)}`), {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+    },
+  })
+  const data = await readJsonBody<{ thread?: ChatThread }>(response, "Chat could not be deleted.")
+
+  if (!response.ok || !data.thread) {
+    throw new Error(data.error || "Chat could not be deleted.")
   }
 
   return data.thread
@@ -1257,6 +1359,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("year")
   const [billingError, setBillingError] = useState("")
   const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
+  const [checkoutPack, setCheckoutPack] = useState<CreditPack | null>(null)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [projectActionError, setProjectActionError] = useState("")
   const [isCreatingProject, setIsCreatingProject] = useState(false)
@@ -1264,6 +1367,11 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const [projectNameDraft, setProjectNameDraft] = useState("")
   const [projectNameError, setProjectNameError] = useState("")
   const [isCreatingThread, setIsCreatingThread] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<ManagementTarget | null>(null)
+  const [renameDraft, setRenameDraft] = useState("")
+  const [renameError, setRenameError] = useState("")
+  const [deleteTarget, setDeleteTarget] = useState<ManagementTarget | null>(null)
+  const [isManagingItem, setIsManagingItem] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -1366,7 +1474,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ plan, interval: billingInterval }),
+        body: JSON.stringify({ checkoutKind: "subscription", plan, interval: billingInterval }),
       })
       const data = (await response.json()) as { url?: string; error?: string }
 
@@ -1379,6 +1487,33 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
     } finally {
       setCheckoutPlan(null)
+    }
+  }
+
+  async function startCreditPackCheckout(pack: CreditPack) {
+    setBillingError("")
+    setCheckoutPack(pack)
+
+    try {
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ checkoutKind: "credit_pack", pack }),
+      })
+      const data = (await response.json()) as { url?: string; error?: string }
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Checkout could not be started.")
+      }
+
+      window.location.assign(data.url)
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
+    } finally {
+      setCheckoutPack(null)
     }
   }
 
@@ -1846,6 +1981,120 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       })
   }
 
+  function openRenameDialog(target: ManagementTarget) {
+    setRenameTarget(target)
+    setRenameDraft(target.label)
+    setRenameError("")
+    setProjectActionError("")
+  }
+
+  function openDeleteDialog(target: ManagementTarget) {
+    setDeleteTarget(target)
+    setProjectActionError("")
+  }
+
+  async function submitRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!renameTarget || isManagingItem) {
+      return
+    }
+
+    const nextLabel = renameDraft.replace(/\s+/g, " ").trim()
+    if (!nextLabel) {
+      setRenameError(renameTarget.type === "project" ? "Enter a project name." : "Enter a chat name.")
+      return
+    }
+
+    setIsManagingItem(true)
+    setRenameError("")
+    setProjectActionError("")
+
+    try {
+      if (renameTarget.type === "project") {
+        const project = await renameProjectRequest(renameTarget.id, nextLabel)
+        setAccount((current) =>
+          current
+            ? {
+                ...current,
+                projects: current.projects.map((item) => (item.id === project.id ? project : item)),
+                activeProject: current.activeProject.id === project.id ? project : current.activeProject,
+              }
+            : current,
+        )
+      } else {
+        const thread = await renameThreadRequest(renameTarget.id, nextLabel)
+        setAccount((current) =>
+          current
+            ? {
+                ...current,
+                threads: current.threads.map((item) => (item.id === thread.id ? thread : item)),
+                activeThread: current.activeThread.id === thread.id ? thread : current.activeThread,
+              }
+            : current,
+        )
+        setChatState((current) => ({
+          ...current,
+          sessions: current.sessions.map((session) =>
+            session.id === thread.id
+              ? {
+                  ...session,
+                  title: thread.title,
+                  updatedAt: new Date(thread.updatedAt).getTime(),
+                }
+              : session,
+          ),
+        }))
+      }
+
+      setRenameTarget(null)
+      setRenameDraft("")
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : "Rename failed.")
+    } finally {
+      setIsManagingItem(false)
+    }
+  }
+
+  async function confirmDeleteTarget() {
+    if (!deleteTarget || isManagingItem) {
+      return
+    }
+
+    const target = deleteTarget
+    setIsManagingItem(true)
+    setProjectActionError("")
+
+    try {
+      if (target.type === "project") {
+        await deleteProjectRequest(target.id)
+        const deletingActiveProject = activeProject?.id === target.id
+        setIsStorageReady(false)
+        const nextAccount = await refreshAccount(
+          deletingActiveProject ? null : activeProject?.id,
+          deletingActiveProject ? null : activeSession?.id,
+        )
+        if (deletingActiveProject) {
+          updateChatThreadUrl(nextAccount.activeThread.id, "replace")
+        }
+      } else {
+        await deleteThreadRequest(target.id)
+        const deletingActiveThread = activeSession?.id === target.id
+        setIsStorageReady(false)
+        const nextAccount = await refreshAccount(activeProject?.id, deletingActiveThread ? null : activeSession?.id)
+        if (deletingActiveThread) {
+          updateChatThreadUrl(nextAccount.activeThread.id, "replace")
+        }
+      }
+
+      setDeleteTarget(null)
+    } catch (error) {
+      setProjectActionError(error instanceof Error ? error.message : "Delete failed.")
+    } finally {
+      setIsManagingItem(false)
+    }
+  }
+
   function applyTaskToAssistantMessage(sessionId: string, messageId: string, task: AgentTask) {
     const latestEvent = latestTaskEvent(task)
     const pendingMessage =
@@ -2145,33 +2394,59 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       const isActive = activeProject?.id === project.id
 
                       return (
-                        <button
+                        <div
                           key={project.id}
-                          type="button"
-                          aria-pressed={isActive}
-                          onClick={() => switchProject(project.id)}
                           className={cn(
-                            "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition",
+                            "group flex min-h-12 items-center gap-2 rounded-xl border px-2.5 py-2 transition",
                             isActive
                               ? "border-primary/35 bg-background/82 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
                               : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-background/55 hover:text-foreground",
                           )}
                         >
-                          <span
-                            className={cn(
-                              "flex h-8 w-8 items-center justify-center rounded-md border",
-                              isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
-                            )}
+                          <button
+                            type="button"
+                            aria-pressed={isActive}
+                            onClick={() => switchProject(project.id)}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
                           >
-                            <Bot className="h-4 w-4" aria-hidden="true" />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-semibold leading-5">{project.name}</span>
-                            <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
-                              {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
+                            <span
+                              className={cn(
+                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
+                                isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
+                              )}
+                            >
+                              <Bot className="h-4 w-4" aria-hidden="true" />
                             </span>
-                          </span>
-                        </button>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold leading-5">{project.name}</span>
+                              <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
+                                {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
+                              </span>
+                            </span>
+                          </button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 group-hover:opacity-100 data-[state=open]:opacity-100"
+                                aria-label={`Manage ${project.name}`}
+                              >
+                                <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem onSelect={() => openRenameDialog({ type: "project", id: project.id, label: project.name })}>
+                                <Pencil className="h-4 w-4" aria-hidden="true" />
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant="destructive" onSelect={() => openDeleteDialog({ type: "project", id: project.id, label: project.name })}>
+                                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       )
                     })
                   )}
@@ -2234,36 +2509,89 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 const SessionIcon = sessionIcon(session)
                 const isActive = activeSession.id === session.id
 
+                if (isSessionPanelCollapsed) {
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      aria-pressed={isActive}
+                      title={session.title}
+                      onClick={() => selectChatThread(session.id)}
+                      className={cn(
+                        "grid size-11 min-h-0 grid-cols-1 place-items-center rounded-lg border p-0 text-left transition",
+                        isActive
+                          ? "border-primary/18 bg-primary/[0.055] text-foreground"
+                          : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-background/55 hover:text-foreground",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-md border",
+                          isActive
+                            ? "border-primary/30 bg-primary/10 text-primary"
+                            : "border-border bg-secondary text-muted-foreground",
+                        )}
+                      >
+                        <SessionIcon className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                    </button>
+                  )
+                }
+
                 return (
-                  <button
+                  <div
                     key={session.id}
-                    type="button"
-                    aria-pressed={isActive}
-                    title={isSessionPanelCollapsed ? session.title : undefined}
-                    onClick={() => selectChatThread(session.id)}
                     className={cn(
-                      "grid min-h-12 grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition",
-                      isSessionPanelCollapsed && "lg:size-11 lg:min-h-0 lg:grid-cols-1 lg:place-items-center lg:p-0",
+                      "group flex min-h-12 items-center gap-2.5 rounded-lg border px-2.5 py-2 transition",
                       isActive
                         ? "border-primary/18 bg-primary/[0.055] text-foreground"
                         : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-background/55 hover:text-foreground",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md border",
-                        isActive
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-border bg-secondary text-muted-foreground",
-                      )}
+                    <button
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => selectChatThread(session.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
                     >
-                      <SessionIcon className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className={cn("min-w-0", isSessionPanelCollapsed && "lg:hidden")}>
-                      <span className="block truncate text-sm font-medium leading-5">{session.title}</span>
-                      <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{sessionSubtitle(session)}</span>
-                    </span>
-                  </button>
+                      <span
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
+                          isActive
+                            ? "border-primary/30 bg-primary/10 text-primary"
+                            : "border-border bg-secondary text-muted-foreground",
+                        )}
+                      >
+                        <SessionIcon className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium leading-5">{session.title}</span>
+                        <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{sessionSubtitle(session)}</span>
+                      </span>
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 group-hover:opacity-100 data-[state=open]:opacity-100"
+                          aria-label={`Manage ${session.title}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem onSelect={() => openRenameDialog({ type: "thread", id: session.id, label: session.title })}>
+                          <Pencil className="h-4 w-4" aria-hidden="true" />
+                          Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem variant="destructive" onSelect={() => openDeleteDialog({ type: "thread", id: session.id, label: session.title })}>
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 )
                 })
               )}
@@ -2677,6 +3005,101 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
           </div>
 
       </div>
+      <Dialog
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isManagingItem) {
+            setRenameTarget(null)
+            setRenameDraft("")
+            setRenameError("")
+          }
+        }}
+      >
+        <DialogContent className="max-w-md border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>{renameTarget?.type === "project" ? "Rename project" : "Rename chat"}</DialogTitle>
+            <DialogDescription>
+              {renameTarget?.type === "project"
+                ? "Update the project name shown in the Gemini Spark sidebar."
+                : "Update the chat title shown under the current project."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="grid gap-4" onSubmit={submitRename}>
+            <div className="grid gap-2">
+              <label htmlFor="gemini-spark-rename-name" className="text-sm font-medium text-foreground">
+                {renameTarget?.type === "project" ? "Project name" : "Chat name"}
+              </label>
+              <Input
+                id="gemini-spark-rename-name"
+                value={renameDraft}
+                onChange={(event) => {
+                  setRenameDraft(event.target.value)
+                  setRenameError("")
+                }}
+                maxLength={80}
+                autoFocus
+                disabled={isManagingItem}
+              />
+              {renameError && <p className="text-sm text-destructive">{displayBrandText(renameError)}</p>}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                rounded="lg"
+                className="bg-transparent"
+                onClick={() => {
+                  setRenameTarget(null)
+                  setRenameDraft("")
+                  setRenameError("")
+                }}
+                disabled={isManagingItem}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" rounded="lg" className="gap-2" disabled={isManagingItem || !renameDraft.trim()}>
+                {isManagingItem ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Pencil className="h-4 w-4" aria-hidden="true" />}
+                Save
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isManagingItem) {
+            setDeleteTarget(null)
+          }
+        }}
+      >
+        <AlertDialogContent className="border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{deleteTarget?.type === "project" ? "Delete project?" : "Delete chat?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === "project"
+                ? `Delete "${deleteTarget.label}" and hide its chat history from the workspace sidebar. Existing task records remain archived for audit.`
+                : `Delete "${deleteTarget?.label}" from this project. Existing task records remain archived for audit.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isManagingItem}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmDeleteTarget()
+              }}
+              disabled={isManagingItem}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isManagingItem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
         <DialogContent className="max-w-md border-border bg-card">
           <DialogHeader>
@@ -2726,7 +3149,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
         </DialogContent>
       </Dialog>
       <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
-        <DialogContent className="max-w-2xl border-border bg-card">
+        <DialogContent className="max-h-[min(86dvh,760px)] max-w-3xl overflow-y-auto border-border bg-card">
           <DialogHeader>
             <DialogTitle>Upgrade Gemini Spark</DialogTitle>
             <DialogDescription>
@@ -2754,16 +3177,41 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
             {(["STARTUP", "PRO"] as const).map((plan) => {
               const details = BILLING_PLANS[plan]
               const price = billingInterval === "year" ? details.yearlyPriceUsd : details.monthlyPriceUsd
+              const yearlyCredits = details.monthlyCredits * 12
+              const cycleCredits = billingInterval === "year" ? yearlyCredits : details.monthlyCredits
+              const equivalents = creditEquivalents(cycleCredits)
 
               return (
                 <div key={plan} className="rounded-lg border border-border bg-background/55 p-4">
                   <div className="mb-4 flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-foreground">{details.label}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{details.monthlyCredits} credits each month</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {billingInterval === "year"
+                          ? `${yearlyCredits} credits granted upfront`
+                          : `${details.monthlyCredits} credits each month`}
+                      </p>
                     </div>
                     <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs text-primary">
                       ${price}/{billingInterval === "year" ? "yr" : "mo"}
+                    </span>
+                  </div>
+                  <div className="mb-4 grid gap-1.5 text-xs text-muted-foreground">
+                    <span className="flex items-center justify-between gap-2">
+                      <span>{billingInterval === "year" ? "Credits today" : "Monthly credits"}</span>
+                      <span className="font-medium text-foreground">{cycleCredits}</span>
+                    </span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span>{billingInterval === "year" ? "Next refresh" : "Included this month"}</span>
+                      <span className="font-medium text-foreground">
+                        {billingInterval === "year" ? "12 months" : details.monthlyCredits}
+                      </span>
+                    </span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span>Image / video tasks</span>
+                      <span className="font-medium text-foreground">
+                        {equivalents.images} / {equivalents.videos}
+                      </span>
                     </span>
                   </div>
                   <Button
@@ -2771,7 +3219,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     rounded="lg"
                     className="w-full gap-2"
                     onClick={() => void startCheckout(plan)}
-                    disabled={checkoutPlan !== null}
+                    disabled={checkoutPlan !== null || checkoutPack !== null}
                   >
                     {checkoutPlan === plan ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
                     Continue
@@ -2779,6 +3227,52 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 </div>
               )
             })}
+          </div>
+
+          <div className="grid gap-3 border-t border-border pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Credit packs</p>
+                <p className="mt-1 text-xs text-muted-foreground">One-time credits for larger project bursts.</p>
+              </div>
+              <Button type="button" variant="ghost" rounded="lg" className="h-8 px-2 text-xs" asChild>
+                <Link href="/pricing">View pricing</Link>
+              </Button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(["BOOST_50", "STUDIO_150", "LAUNCH_400"] as const).map((pack) => {
+                const details = CREDIT_PACKS[pack]
+                const equivalents = creditEquivalents(details.credits)
+
+                return (
+                  <div key={pack} className="rounded-lg border border-border bg-background/55 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{details.label}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{details.credits} credits</p>
+                      </div>
+                      <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                        ${details.priceUsd}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                      Up to {equivalents.chats} chats, {equivalents.images} images, or {equivalents.videos} videos.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      rounded="lg"
+                      className="mt-3 w-full gap-2 bg-transparent"
+                      onClick={() => void startCreditPackCheckout(pack)}
+                      disabled={checkoutPlan !== null || checkoutPack !== null}
+                    >
+                      {checkoutPack === pack ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
+                      Buy pack
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           {account?.credits.plan !== "free" && (

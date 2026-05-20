@@ -1,14 +1,13 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { type FormEvent, useMemo, useState } from "react"
+import { type FormEvent, useState } from "react"
 import { Bot, Sparkles, Wand2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 
-const agentModes = ["Research", "Marketing", "Product", "Operations"] as const
-type AgentMode = (typeof agentModes)[number]
+const defaultAgentMode = "Research"
 
 const starterObjective =
   "Plan a launch workflow for a new AI productivity feature, including research, positioning, content tasks, and review checks."
@@ -16,9 +15,6 @@ const starterObjective =
 export function AgentWorkspace() {
   const router = useRouter()
   const [objective, setObjective] = useState(starterObjective)
-  const [mode, setMode] = useState<AgentMode>("Research")
-
-  const wordCount = useMemo(() => objective.trim().split(/\s+/).filter(Boolean).length, [objective])
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -30,7 +26,7 @@ export function AgentWorkspace() {
 
     const params = new URLSearchParams({
       prompt: cleanObjective,
-      mode,
+      mode: defaultAgentMode,
     })
 
     router.push(`/gemini-spark?${params.toString()}`)
@@ -49,7 +45,7 @@ export function AgentWorkspace() {
               Build an agent brief with <span className="text-gradient-spark">Gemini Spark</span>
             </h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-              Describe the objective, choose a working mode, and Gemini Spark structures the role, steps, checks, and output for an AI agent task.
+              Describe the objective and Gemini Spark structures the role, steps, checks, and output for an AI agent task.
             </p>
           </div>
 
@@ -67,45 +63,28 @@ export function AgentWorkspace() {
         <div className="max-w-4xl">
           <form
             onSubmit={handleSubmit}
-            className="rounded-xl border border-border bg-card p-4 shadow-[0_24px_80px_rgba(0,0,0,0.25)] sm:p-5"
+            className="group relative overflow-hidden rounded-[2rem] border border-primary/15 bg-card/95 p-2 shadow-[0_28px_90px_rgba(0,0,0,0.28)] transition focus-within:border-primary/45 focus-within:shadow-[0_28px_90px_rgba(40,145,255,0.18)] sm:p-2.5"
           >
-            <label htmlFor="agent-objective" className="mb-2 block text-sm font-medium text-foreground">
-              Agent objective
-            </label>
-            <Textarea
-              id="agent-objective"
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              className="min-h-36 resize-none border-border bg-background/60 text-sm leading-6"
-              placeholder="Describe the goal, audience, context, and expected result."
-              required
-            />
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-foreground">Agent mode</label>
-              <div className="grid gap-2 sm:grid-cols-4">
-                {agentModes.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setMode(value)}
-                    className={`rounded-lg border px-3 py-2 text-sm transition ${
-                      mode === value
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background/55 text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {value}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs leading-5 text-muted-foreground">
-                {wordCount} words. Add constraints and expected output for a more useful agent brief.
-              </p>
-              <Button type="submit" size="lg" rounded="lg" className="w-full gap-2 sm:w-auto" disabled={!objective.trim()}>
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,oklch(0.68_0.19_255_/_0.14),transparent_32%,oklch(0.76_0.15_285_/_0.08))] opacity-70" />
+            <div className="relative flex flex-col gap-2 rounded-[1.55rem] border border-white/5 bg-background/75 p-2 backdrop-blur sm:flex-row sm:items-center">
+              <label htmlFor="agent-objective" className="sr-only">
+                Agent objective
+              </label>
+              <Input
+                id="agent-objective"
+                value={objective}
+                onChange={(event) => setObjective(event.target.value)}
+                className="h-14 flex-1 rounded-full border-transparent bg-transparent px-5 text-base text-foreground shadow-none placeholder:text-muted-foreground/70 focus-visible:border-transparent focus-visible:ring-0"
+                placeholder="Describe the agent objective..."
+                required
+              />
+              <Button
+                type="submit"
+                size="xl"
+                rounded="full"
+                className="h-[3.25rem] w-full px-6 shadow-[0_16px_36px_rgba(40,145,255,0.24)] sm:w-auto"
+                disabled={!objective.trim()}
+              >
                 <Wand2 className="h-4 w-4" />
                 Build brief
               </Button>

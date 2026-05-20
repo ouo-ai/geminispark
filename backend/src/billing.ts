@@ -1,4 +1,5 @@
 import {
+  BillingInterval,
   BillingPlan,
   CreditBucket,
   CreditTransactionType,
@@ -28,9 +29,14 @@ function addMonths(date: Date, months: number) {
   return next
 }
 
-function planCredits(plan: BillingPlan) {
-  if (plan === BillingPlan.STARTUP) return 100
-  if (plan === BillingPlan.PRO) return 250
+function cycleMonths(interval: BillingInterval | null | undefined) {
+  return interval === BillingInterval.YEAR ? 12 : 1
+}
+
+function planCredits(plan: BillingPlan, interval?: BillingInterval | null) {
+  const multiplier = cycleMonths(interval)
+  if (plan === BillingPlan.STARTUP) return 100 * multiplier
+  if (plan === BillingPlan.PRO) return 250 * multiplier
   return 0
 }
 
@@ -71,8 +77,9 @@ async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, 
     })
   }
 
-  const monthlyCredits = planCredits(credit.plan)
-  if (!ACTIVE_STATUSES.has(credit.subscriptionStatus) || monthlyCredits <= 0) {
+  const interval = credit.billingInterval || BillingInterval.MONTH
+  const cycleCredits = planCredits(credit.plan, interval)
+  if (!ACTIVE_STATUSES.has(credit.subscriptionStatus) || cycleCredits <= 0) {
     return credit
   }
 
@@ -81,11 +88,11 @@ async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, 
   }
 
   const periodStart = now
-  const periodEnd = addMonths(now, 1)
+  const periodEnd = addMonths(now, cycleMonths(interval))
   credit = await tx.userCredit.update({
     where: { userId },
     data: {
-      periodCreditsRemaining: monthlyCredits,
+      periodCreditsRemaining: cycleCredits,
       creditsPeriodStart: periodStart,
       creditsPeriodEnd: periodEnd,
       nextCreditGrantAt: periodEnd,
@@ -98,11 +105,11 @@ async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, 
         userId,
         type: CreditTransactionType.GRANT,
         bucket: CreditBucket.PERIOD,
-        amount: monthlyCredits,
+        amount: cycleCredits,
         balanceAfterFree: credit.freeCreditsRemaining,
         balanceAfterPeriod: credit.periodCreditsRemaining,
-        description: "Monthly plan credits granted.",
-        idempotencyKey: `credit-period:${userId}:${periodStart.toISOString()}`,
+        description: interval === BillingInterval.YEAR ? "Annual plan credits granted." : "Monthly plan credits granted.",
+        idempotencyKey: `credit-period:${userId}:${interval.toLowerCase()}:${periodStart.toISOString()}`,
       },
     ],
     skipDuplicates: true,

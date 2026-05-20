@@ -1,7 +1,7 @@
 import Stripe from "stripe"
 
-import { BILLING_PLANS, isBillingInterval, isPaidPlan } from "@/lib/billing-config"
-import { activateSubscriptionCredits, subscriptionStatusFromStripe } from "@/lib/credits"
+import { BILLING_PLANS, CREDIT_PACKS, isBillingInterval, isCreditPack, isPaidPlan } from "@/lib/billing-config"
+import { activateSubscriptionCredits, grantCreditPackCredits, subscriptionStatusFromStripe } from "@/lib/credits"
 import { prisma } from "@/lib/db"
 import { getStripe, paidPlanFromPriceId } from "@/lib/stripe"
 
@@ -16,6 +16,11 @@ function firstString(value: string | Stripe.Customer | Stripe.DeletedCustomer | 
 function subscriptionIdFromSession(session: Stripe.Checkout.Session) {
   if (!session.subscription) return null
   return typeof session.subscription === "string" ? session.subscription : session.subscription.id
+}
+
+function paymentIntentIdFromSession(session: Stripe.Checkout.Session) {
+  if (!session.payment_intent) return null
+  return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id
 }
 
 function formatStripeAmount(amount: number | null, currency: string | null) {
@@ -43,6 +48,15 @@ function formatChinaTime(date = new Date()) {
   }).format(date)
 }
 
+function stripeObjectId(value: string | { id: string } | null | undefined) {
+  if (!value) return null
+  return typeof value === "string" ? value : value.id
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "Unknown error")
+}
+
 async function userIdForCustomer(customerId: string | null) {
   if (!customerId) return null
 
@@ -52,6 +66,16 @@ async function userIdForCustomer(customerId: string | null) {
   })
 
   return credit?.userId || null
+}
+
+function billingIntervalFromSubscription(subscription: Stripe.Subscription): "month" | "year" {
+  const metadataInterval = subscription.metadata.interval
+  if (isBillingInterval(metadataInterval)) {
+    return metadataInterval
+  }
+
+  const recurringInterval = subscription.items.data[0]?.price.recurring?.interval
+  return recurringInterval === "year" ? "year" : "month"
 }
 
 async function syncSubscription(subscription: Stripe.Subscription, stripeEventId: string) {
@@ -71,6 +95,7 @@ async function syncSubscription(subscription: Stripe.Subscription, stripeEventId
   await activateSubscriptionCredits({
     userId,
     plan,
+    interval: billingIntervalFromSubscription(subscription),
     status: subscriptionStatusFromStripe(subscription.status),
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscription.id,
@@ -80,6 +105,25 @@ async function syncSubscription(subscription: Stripe.Subscription, stripeEventId
 
 async function syncCheckoutSession(session: Stripe.Checkout.Session, stripeEventId: string) {
   const userId = session.metadata?.userId
+  const checkoutKind = session.metadata?.checkoutKind
+
+  if (checkoutKind === "credit_pack") {
+    const pack = session.metadata?.pack
+    if (!userId || !isCreditPack(pack) || session.payment_status !== "paid") {
+      return
+    }
+
+    await grantCreditPackCredits({
+      userId,
+      pack,
+      stripeCustomerId: firstString(session.customer),
+      stripeCheckoutSessionId: session.id,
+      stripePaymentIntentId: paymentIntentIdFromSession(session),
+      stripeEventId,
+    })
+    return
+  }
+
   if (!userId || !session.subscription) {
     return
   }
@@ -134,15 +178,26 @@ async function sendFeishuText(text: string) {
   }
 }
 
+async function tryRunFeishuNotification(label: string, notify: () => Promise<void>) {
+  try {
+    await notify()
+  } catch (error) {
+    console.error(`Feishu ${label} notification failed:`, error)
+  }
+}
+
 async function notifyPaymentSuccess(session: Stripe.Checkout.Session, stripeEventId: string) {
   if (session.payment_status !== "paid") {
     return
   }
 
+  const checkoutKind = session.metadata?.checkoutKind
   const metadataPlan = session.metadata?.plan
   const metadataInterval = session.metadata?.interval
+  const metadataPack = session.metadata?.pack
   const plan = isPaidPlan(metadataPlan) ? metadataPlan : null
   const interval = isBillingInterval(metadataInterval) ? metadataInterval : null
+  const pack = isCreditPack(metadataPack) ? metadataPack : null
   const userId = session.metadata?.userId || null
   const user = userId
     ? await prisma.user.findUnique({
@@ -150,20 +205,146 @@ async function notifyPaymentSuccess(session: Stripe.Checkout.Session, stripeEven
         select: { email: true, name: true },
       })
     : null
-  const planLabel = plan ? BILLING_PLANS[plan].label : "Unknown plan"
-  const intervalLabel = interval === "year" ? "年付" : interval === "month" ? "月付" : "未知周期"
   const subscriptionId = subscriptionIdFromSession(session)
+  const paymentIntentId = paymentIntentIdFromSession(session)
   const buyer = user?.email || session.customer_details?.email || user?.name || userId || "unknown"
+  const purchaseLines =
+    checkoutKind === "credit_pack" && pack
+      ? [
+          "类型：积分包",
+          `套餐：${CREDIT_PACKS[pack].label}（${CREDIT_PACKS[pack].credits} credits）`,
+          `Stripe PaymentIntent：${paymentIntentId || "-"}`,
+        ]
+      : [
+          "类型：订阅",
+          `套餐：${plan ? BILLING_PLANS[plan].label : "Unknown plan"}（${
+            interval === "year" ? "年付" : interval === "month" ? "月付" : "未知周期"
+          }）`,
+          `Stripe Subscription：${subscriptionId || "-"}`,
+        ]
 
   await sendFeishuText(
     [
       "Gemini Spark 购买成功",
-      `套餐：${planLabel}（${intervalLabel}）`,
+      ...purchaseLines,
       `金额：${formatStripeAmount(session.amount_total, session.currency)}`,
       `用户：${buyer}`,
       `Stripe Checkout：${session.id}`,
+      `Stripe Event：${stripeEventId}`,
+      `时间：${formatChinaTime()}`,
+    ].join("\n"),
+  )
+}
+
+async function notifyCheckoutFailure(session: Stripe.Checkout.Session, stripeEventId: string, reason: string) {
+  const checkoutKind = session.metadata?.checkoutKind || "unknown"
+  const metadataPlan = session.metadata?.plan
+  const metadataInterval = session.metadata?.interval
+  const metadataPack = session.metadata?.pack
+  const plan = isPaidPlan(metadataPlan) ? metadataPlan : null
+  const interval = isBillingInterval(metadataInterval) ? metadataInterval : null
+  const pack = isCreditPack(metadataPack) ? metadataPack : null
+  const userId = session.metadata?.userId || null
+  const user = userId
+    ? await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, name: true },
+      })
+    : null
+  const buyer = user?.email || session.customer_details?.email || user?.name || userId || "unknown"
+  const purchaseLines =
+    checkoutKind === "credit_pack" && pack
+      ? [`类型：积分包`, `套餐：${CREDIT_PACKS[pack].label}（${CREDIT_PACKS[pack].credits} credits）`]
+      : [
+          `类型：订阅`,
+          `套餐：${plan ? BILLING_PLANS[plan].label : "Unknown plan"}（${
+            interval === "year" ? "年付" : interval === "month" ? "月付" : "未知周期"
+          }）`,
+        ]
+
+  await sendFeishuText(
+    [
+      "Gemini Spark 支付失败",
+      ...purchaseLines,
+      `原因：${reason}`,
+      `Payment Status：${session.payment_status || "-"}`,
+      `金额：${formatStripeAmount(session.amount_total, session.currency)}`,
+      `用户：${buyer}`,
+      `Stripe Checkout：${session.id}`,
+      `Stripe Subscription：${subscriptionIdFromSession(session) || "-"}`,
+      `Stripe PaymentIntent：${paymentIntentIdFromSession(session) || "-"}`,
+      `Stripe Event：${stripeEventId}`,
+      `时间：${formatChinaTime()}`,
+    ].join("\n"),
+  )
+}
+
+async function notifyPaymentIntentFailure(paymentIntent: Stripe.PaymentIntent, stripeEventId: string) {
+  const userId = paymentIntent.metadata.userId || null
+  const user = userId
+    ? await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, name: true },
+      })
+    : null
+  const buyer = user?.email || user?.name || userId || "unknown"
+
+  await sendFeishuText(
+    [
+      "Gemini Spark 支付失败",
+      "类型：PaymentIntent",
+      `原因：${paymentIntent.last_payment_error?.message || "Payment intent failed."}`,
+      `金额：${formatStripeAmount(paymentIntent.amount, paymentIntent.currency)}`,
+      `用户：${buyer}`,
+      `Stripe PaymentIntent：${paymentIntent.id}`,
+      `Stripe Customer：${stripeObjectId(paymentIntent.customer) || "-"}`,
+      `Stripe Event：${stripeEventId}`,
+      `时间：${formatChinaTime()}`,
+    ].join("\n"),
+  )
+}
+
+async function notifyInvoiceFailure(invoice: Stripe.Invoice, stripeEventId: string) {
+  const customerId = firstString(invoice.customer)
+  const subscriptionId = stripeObjectId(
+    (invoice as Stripe.Invoice & { subscription?: string | { id: string } | null }).subscription,
+  )
+  const userId = invoice.metadata?.userId || (await userIdForCustomer(customerId))
+  const user = userId
+    ? await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, name: true },
+      })
+    : null
+  const buyer = user?.email || user?.name || userId || customerId || "unknown"
+
+  await sendFeishuText(
+    [
+      "Gemini Spark 支付失败",
+      "类型：Invoice",
+      `原因：${invoice.status || "invoice payment failed"}`,
+      `金额：${formatStripeAmount(invoice.amount_due, invoice.currency)}`,
+      `用户：${buyer}`,
+      `Stripe Customer：${customerId || "-"}`,
+      `Stripe Invoice：${invoice.id}`,
       `Stripe Subscription：${subscriptionId || "-"}`,
       `Stripe Event：${stripeEventId}`,
+      `时间：${formatChinaTime()}`,
+    ].join("\n"),
+  )
+}
+
+async function notifyWebhookException(params: {
+  stripeEventId?: string
+  stripeEventType?: string
+  error: unknown
+}) {
+  await sendFeishuText(
+    [
+      "Gemini Spark 支付 Webhook 异常",
+      `事件：${params.stripeEventType || "-"}`,
+      `Stripe Event：${params.stripeEventId || "-"}`,
+      `异常：${errorMessage(params.error)}`,
       `时间：${formatChinaTime()}`,
     ].join("\n"),
   )
@@ -182,7 +363,7 @@ export async function POST(request: Request) {
   try {
     event = getStripe().webhooks.constructEvent(body, signature, webhookSecret)
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid webhook signature."
+    const message = errorMessage(error) || "Invalid webhook signature."
     return Response.json({ error: message }, { status: 400 })
   }
 
@@ -190,9 +371,29 @@ export async function POST(request: Request) {
     if (event.type === "checkout.session.completed") {
       const checkoutSession = event.data.object as Stripe.Checkout.Session
       await syncCheckoutSession(checkoutSession, event.id)
-      await notifyPaymentSuccess(checkoutSession, event.id).catch((error) => {
-        console.error("Feishu payment notification failed:", error)
-      })
+      await tryRunFeishuNotification("payment success", () => notifyPaymentSuccess(checkoutSession, event.id))
+    }
+
+    if (event.type === "checkout.session.async_payment_failed") {
+      await tryRunFeishuNotification("checkout failure", () =>
+        notifyCheckoutFailure(event.data.object as Stripe.Checkout.Session, event.id, "Async payment failed."),
+      )
+    }
+
+    if (event.type === "checkout.session.expired") {
+      await tryRunFeishuNotification("checkout expired", () =>
+        notifyCheckoutFailure(event.data.object as Stripe.Checkout.Session, event.id, "Checkout session expired."),
+      )
+    }
+
+    if (event.type === "payment_intent.payment_failed") {
+      await tryRunFeishuNotification("payment intent failure", () =>
+        notifyPaymentIntentFailure(event.data.object as Stripe.PaymentIntent, event.id),
+      )
+    }
+
+    if (event.type === "invoice.payment_failed") {
+      await tryRunFeishuNotification("invoice failure", () => notifyInvoiceFailure(event.data.object as Stripe.Invoice, event.id))
     }
 
     if (
@@ -205,7 +406,14 @@ export async function POST(request: Request) {
 
     return Response.json({ received: true })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Stripe webhook failed."
+    await tryRunFeishuNotification("webhook exception", () =>
+      notifyWebhookException({
+        stripeEventId: event.id,
+        stripeEventType: event.type,
+        error,
+      }),
+    )
+    const message = errorMessage(error) || "Stripe webhook failed."
     return Response.json({ error: message }, { status: 500 })
   }
 }
