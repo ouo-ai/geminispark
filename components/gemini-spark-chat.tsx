@@ -238,6 +238,19 @@ function agentApiUrl(path: string) {
   return `${AGENT_API_BASE_PATH}${path}`
 }
 
+async function readJsonBody<T extends object>(response: Response, fallbackError: string): Promise<T & { error?: string }> {
+  const text = await response.text()
+  if (!text.trim()) {
+    return { error: fallbackError } as T & { error?: string }
+  }
+
+  try {
+    return JSON.parse(text) as T & { error?: string }
+  } catch {
+    return { error: fallbackError } as T & { error?: string }
+  }
+}
+
 function latestTaskEvent(task: AgentTask) {
   return task.events?.[task.events.length - 1]
 }
@@ -473,7 +486,7 @@ async function fetchTask(taskId: string) {
       Accept: "application/json",
     },
   })
-  const data = (await response.json()) as AgentTask | { error?: string }
+  const data = await readJsonBody<AgentTask>(response, "Task request returned an invalid response.")
 
   if (!response.ok) {
     throw new Error(("error" in data && data.error) || "Task request failed.")
@@ -496,7 +509,7 @@ async function fetchAccountBootstrap(projectAgentId?: string | null, chatThreadI
       Accept: "application/json",
     },
   })
-  const data = (await response.json()) as AccountBootstrap | { error?: string }
+  const data = await readJsonBody<AccountBootstrap>(response, "Gemini Spark workspace initialization returned an invalid response.")
 
   if (!response.ok) {
     throw new Error(("error" in data && data.error) || "Account initialization failed.")
@@ -514,7 +527,7 @@ async function createProjectRequest(name: string) {
     },
     body: JSON.stringify({ name }),
   })
-  const data = (await response.json()) as { project?: ProjectAgent; thread?: ChatThread; error?: string }
+  const data = await readJsonBody<{ project?: ProjectAgent; thread?: ChatThread }>(response, "Project could not be created.")
 
   if (!response.ok || !data.project || !data.thread) {
     throw new Error(data.error || "Project could not be created.")
@@ -532,7 +545,7 @@ async function createThreadRequest(projectAgentId: string, title = "New chat") {
     },
     body: JSON.stringify({ title }),
   })
-  const data = (await response.json()) as { thread?: ChatThread; error?: string }
+  const data = await readJsonBody<{ thread?: ChatThread }>(response, "Chat could not be created.")
 
   if (!response.ok || !data.thread) {
     throw new Error(data.error || "Chat could not be created.")
@@ -547,7 +560,7 @@ async function fetchThreadMessagesRequest(threadId: string) {
       Accept: "application/json",
     },
   })
-  const data = (await response.json()) as { messages?: ChatMessage[]; error?: string }
+  const data = await readJsonBody<{ messages?: ChatMessage[] }>(response, "Chat history could not be loaded.")
 
   if (!response.ok || !Array.isArray(data.messages)) {
     throw new Error(data.error || "Chat history could not be loaded.")
@@ -1737,7 +1750,7 @@ export function GeminiSparkChat() {
         }),
       })
 
-      const data = (await response.json()) as AgentTask | { error?: string }
+      const data = await readJsonBody<AgentTask>(response, "Gemini Spark request returned an invalid response.")
 
       if (!response.ok) {
         if (response.status === 402) {
