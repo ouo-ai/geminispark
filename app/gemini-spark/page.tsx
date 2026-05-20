@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
 
 import { GeminiSparkChat } from "@/components/gemini-spark-chat"
-import { Navbar } from "@/components/navbar"
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://geminispark.ai"
 
@@ -87,8 +86,7 @@ export default function GeminiSparkPage() {
   }
 
   return (
-    <main className="relative z-0 min-h-dvh overflow-x-hidden bg-background lg:h-dvh lg:overflow-hidden">
-      <Navbar />
+    <main className="relative z-0 h-dvh min-h-dvh overflow-hidden bg-background">
       <GeminiSparkChat />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
     </main>

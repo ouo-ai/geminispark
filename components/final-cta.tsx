@@ -14,7 +14,7 @@ export function FinalCTA() {
         className="relative max-w-5xl mx-auto bg-background rounded-3xl overflow-hidden py-16 lg:py-24 px-6 sm:px-12"
         style={{
           border: "1px dashed",
-          borderColor: "oklch(0.85 0.16 75 / 0.4)",
+          borderColor: "oklch(0.68 0.19 255 / 0.44)",
         }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />

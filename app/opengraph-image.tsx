@@ -28,7 +28,7 @@ export default function Image() {
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(135deg, rgba(245,180,50,0.28), transparent 38%), linear-gradient(315deg, rgba(58,190,220,0.24), transparent 42%)",
+              "linear-gradient(135deg, rgba(66,133,244,0.34), transparent 38%), linear-gradient(315deg, rgba(124,77,255,0.26), transparent 42%)",
           }}
         />
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 18, fontSize: 34 }}>
@@ -39,9 +39,9 @@ export default function Image() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              border: "1px solid rgba(245,180,50,0.55)",
+              border: "1px solid rgba(66,133,244,0.62)",
               borderRadius: 14,
-              color: "#f8c35f",
+              color: "#8ab4ff",
             }}
           >
             ✦

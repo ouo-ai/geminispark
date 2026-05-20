@@ -97,7 +97,7 @@ export function Navbar() {
       <nav className="mx-auto max-w-6xl px-2 sm:px-4 lg:px-8 py-4" aria-label="Main navigation">
         <div className="flex h-14 items-center justify-between bg-background/60 backdrop-blur-xl border border-border/50 rounded-full px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2" aria-label="Gemini Spark home">
-            <div className="relative h-6 w-6 overflow-hidden rounded-md border border-primary/25 shadow-[0_0_18px_rgba(245,180,50,0.2)]">
+            <div className="relative h-6 w-6 overflow-hidden rounded-md border border-primary/25 shadow-[0_0_18px_rgba(66,133,244,0.24)]">
               <Image src="/icon-192.png" alt="" fill sizes="24px" className="object-cover" priority />
             </div>
             <span

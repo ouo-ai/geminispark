@@ -117,7 +117,7 @@ export function Hero() {
             transition={{ duration: 0.5, delay: 0.3 }}
             className="max-w-2xl mx-auto mb-6"
           >
-            <div className="relative bg-card border border-border rounded-xl overflow-hidden shadow-[0_0_40px_rgba(245,180,50,0.12),0_0_80px_rgba(245,180,50,0.06)]">
+            <div className="relative bg-card border border-border rounded-xl overflow-hidden shadow-[0_0_40px_rgba(66,133,244,0.16),0_0_80px_rgba(124,77,255,0.08)]">
               <div className="relative">
                 <input
                   type="text"

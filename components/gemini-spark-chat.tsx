@@ -1,11 +1,10 @@
 "use client"
 
-import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react"
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
   AlertTriangle,
-  ArrowRight,
   Bot,
   CheckCircle2,
   CreditCard,
@@ -13,6 +12,8 @@ import {
   Loader2,
   MessageSquare,
   Paperclip,
+  ChevronLeft,
+  ChevronRight,
   Plus,
   RefreshCw,
   Send,
@@ -933,6 +934,7 @@ export function GeminiSparkChat() {
   const { data: session, isPending: isSessionPending } = authClient.useSession()
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
+  const [isSessionPanelCollapsed, setIsSessionPanelCollapsed] = useState(true)
   const [isThinking, setIsThinking] = useState(false)
   const [isStorageReady, setIsStorageReady] = useState(false)
   const [thinkingIndex, setThinkingIndex] = useState(0)
@@ -944,16 +946,40 @@ export function GeminiSparkChat() {
   const [billingError, setBillingError] = useState("")
   const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const hasLoadedUrlPromptRef = useRef(false)
   const [chatState, setChatState] = useState<ChatState>(() => createInitialChatState())
 
   const activeSession =
     chatState.sessions.find((session) => session.id === chatState.activeSessionId) ?? chatState.sessions[0]
   const messages = activeSession.messages
+  const hasConversationStarted = messages.some((message) => message.role === "user")
+  const visibleMessages = hasConversationStarted
+    ? messages.filter((message, index) => !(index === 0 && message.role === "assistant" && message.body === WELCOME_MESSAGE))
+    : []
+  const latestVisibleMessage = visibleMessages[visibleMessages.length - 1]
+  const latestMediaKey = latestVisibleMessage?.media?.urls.join("|") ?? ""
   const isSignedIn = Boolean(session?.user)
   const workspaceState = workspaceGateState(isSignedIn, isSessionPending, account, bootstrapError)
   const isWorkspaceReady = workspaceState === "ready"
   const isWorkspaceBlocked = isSignedIn && !isWorkspaceReady
+
+  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    window.requestAnimationFrame(() => {
+      const viewport = messagesViewportRef.current
+
+      if (viewport) {
+        viewport.scrollTo({
+          top: viewport.scrollHeight,
+          behavior,
+        })
+        return
+      }
+
+      messagesEndRef.current?.scrollIntoView({ block: "end", behavior })
+    })
+  }, [])
 
   function signInWithGoogle() {
     void authClient.signIn.social({
@@ -1111,6 +1137,30 @@ export function GeminiSparkChat() {
 
     return () => window.clearInterval(interval)
   }, [isThinking])
+
+  useEffect(() => {
+    if (!hasConversationStarted) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      scrollMessagesToBottom("smooth")
+    }, 40)
+
+    return () => window.clearTimeout(timeout)
+  }, [
+    activeSession.id,
+    activeSession.updatedAt,
+    hasConversationStarted,
+    isThinking,
+    latestMediaKey,
+    latestVisibleMessage?.body,
+    latestVisibleMessage?.id,
+    latestVisibleMessage?.status,
+    scrollMessagesToBottom,
+    thinkingIndex,
+    visibleMessages.length,
+  ])
 
   async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || [])
@@ -1335,7 +1385,7 @@ export function GeminiSparkChat() {
   }
 
   return (
-    <section className="relative isolate min-h-dvh overflow-hidden bg-background pt-24 lg:h-dvh lg:pt-20">
+    <section className="relative isolate h-dvh min-h-dvh overflow-hidden bg-background">
       <div
         className="pointer-events-none absolute inset-0 -z-20 opacity-40"
         style={{
@@ -1353,56 +1403,152 @@ export function GeminiSparkChat() {
         <div className="absolute inset-0 bg-cover bg-right-top" style={{ backgroundImage: "url('/grade.png')" }} />
       </div>
 
-      <div className="mx-auto flex min-h-[calc(100dvh-6rem)] w-full max-w-none flex-col px-3 pb-3 pt-4 sm:px-5 lg:h-[calc(100dvh-5rem)] lg:min-h-0 lg:px-6 xl:px-8">
-        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between lg:mb-4">
-          <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>Gemini Spark</span>
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="text-primary">Fused agent chat</span>
-            </div>
-            <h1 className="text-4xl font-bold leading-tight tracking-display text-foreground sm:text-5xl lg:text-6xl xl:text-7xl">
-              Gemini Spark Chat
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {isSignedIn ? (
-              <>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
-                  <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
-                  {account ? `${account.credits.totalCredits} credits` : "Credits..."}
-                </span>
-                <Button size="sm" variant="outline" rounded="full" className="w-fit gap-2 bg-transparent" type="button" onClick={() => setBillingOpen(true)}>
-                  <CreditCard className="h-4 w-4" aria-hidden="true" />
-                  Upgrade
-                </Button>
-                <span className="max-w-[220px] truncate rounded-full border border-border bg-card/75 px-3 py-1.5 text-xs text-muted-foreground">
-                  {session?.user.email || session?.user.name}
-                </span>
-                <Button size="sm" variant="outline" rounded="full" className="w-fit bg-transparent" type="button" onClick={signOut}>
-                  Sign out
-                </Button>
-              </>
-            ) : (
-              <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={signInWithGoogle} disabled={isSessionPending}>
-                <User className="h-4 w-4" aria-hidden="true" />
-                Sign in with Google
-              </Button>
+      <div
+        className={cn(
+          "relative z-10 grid h-full min-h-0",
+          isSessionPanelCollapsed
+            ? "lg:grid-cols-[76px_minmax(0,1fr)]"
+            : "lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]",
+        )}
+      >
+          <aside
+            className={cn(
+              "hidden border-r border-border/70 bg-background/82 backdrop-blur-xl lg:flex lg:min-h-0 lg:flex-col",
+              isSessionPanelCollapsed ? "lg:p-3" : "lg:p-4",
             )}
-            <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={startNewChat}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New chat
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid flex-1 gap-4 lg:min-h-0 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)] 2xl:grid-cols-[420px_minmax(0,1fr)]">
-          <aside className="rounded-xl border border-border bg-card/70 p-3 lg:h-full lg:min-h-0 lg:overflow-hidden xl:p-4">
-            <div className="mb-3 flex items-center justify-between px-2">
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Sessions</p>
-              <MessageSquare className="h-4 w-4 text-primary" aria-hidden="true" />
+          >
+            <div
+              className={cn(
+                "mb-4 flex items-center justify-between gap-2",
+                isSessionPanelCollapsed && "lg:justify-center lg:px-0",
+              )}
+            >
+              <div className={cn("flex min-w-0 items-center gap-2", isSessionPanelCollapsed && "lg:hidden")}>
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="truncate text-sm font-semibold text-foreground">Gemini Spark</span>
+              </div>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                rounded="lg"
+                className="hidden bg-transparent lg:inline-flex"
+                aria-label={isSessionPanelCollapsed ? "Expand sessions sidebar" : "Collapse sessions sidebar"}
+                aria-expanded={!isSessionPanelCollapsed}
+                aria-controls="gemini-spark-session-list"
+                title={isSessionPanelCollapsed ? "Expand sessions" : "Collapse sessions"}
+                onClick={() => setIsSessionPanelCollapsed((current) => !current)}
+              >
+                {isSessionPanelCollapsed ? (
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                )}
+              </Button>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+
+            <Button
+              size={isSessionPanelCollapsed ? "icon" : "sm"}
+              variant={isSessionPanelCollapsed ? "ghost" : "secondary"}
+              rounded="lg"
+              className={cn("mb-4 bg-transparent", !isSessionPanelCollapsed && "w-full justify-start")}
+              type="button"
+              onClick={startNewChat}
+              title="New chat"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              <span className={cn(isSessionPanelCollapsed && "lg:hidden")}>New chat</span>
+            </Button>
+
+            <div id="gemini-spark-session-list" className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto">
+              {chatState.sessions.map((session) => {
+                const SessionIcon = sessionIcon(session)
+                const isActive = activeSession.id === session.id
+
+                return (
+                  <button
+                    key={session.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    title={isSessionPanelCollapsed ? session.title : undefined}
+                    onClick={() =>
+                      setChatState((current) => ({
+                        ...current,
+                        activeSessionId: session.id,
+                      }))
+                    }
+                    className={cn(
+                      "grid min-h-16 grid-cols-[36px_minmax(0,1fr)] items-center gap-3 rounded-lg border px-3 py-2 text-left transition lg:min-h-14",
+                      isSessionPanelCollapsed && "lg:grid-cols-1 lg:place-items-center lg:px-2",
+                      isActive
+                        ? "border-primary/55 bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(66,133,244,0.2)]"
+                        : "border-transparent bg-background/40 text-muted-foreground hover:border-border hover:bg-background/75 hover:text-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-md border",
+                        isActive
+                          ? "border-primary/35 bg-primary/15 text-primary"
+                          : "border-border bg-secondary text-muted-foreground",
+                      )}
+                    >
+                      <SessionIcon className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    <span className={cn("min-w-0", isSessionPanelCollapsed && "lg:hidden")}>
+                      <span className="block truncate text-sm font-semibold">{session.title}</span>
+                      <span className="mt-1 block truncate text-xs leading-5">{sessionSubtitle(session)}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
+
+          <div className="flex min-h-0 flex-col">
+            <div className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border/70 bg-background/72 px-4 backdrop-blur-xl sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+                  <Bot className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Active fused agent</p>
+                  <h1 className="truncate text-sm font-semibold text-foreground">{activeSession.title}</h1>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center justify-end gap-2">
+                {isSignedIn ? (
+                  <>
+                    <span className="hidden items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary sm:inline-flex">
+                      <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                      {account ? `${account.credits.totalCredits} credits` : "Credits..."}
+                    </span>
+                    <Button size="sm" variant="outline" rounded="full" className="hidden w-fit gap-2 bg-transparent sm:inline-flex" type="button" onClick={() => setBillingOpen(true)}>
+                      <CreditCard className="h-4 w-4" aria-hidden="true" />
+                      Upgrade
+                    </Button>
+                    <span className="hidden max-w-[220px] truncate rounded-full border border-border bg-card/75 px-3 py-1.5 text-xs text-muted-foreground md:inline-block">
+                      {session?.user.email || session?.user.name}
+                    </span>
+                    <Button size="sm" variant="outline" rounded="full" className="hidden w-fit bg-transparent sm:inline-flex" type="button" onClick={signOut}>
+                      Sign out
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={signInWithGoogle} disabled={isSessionPending}>
+                    <User className="h-4 w-4" aria-hidden="true" />
+                    Sign in
+                  </Button>
+                )}
+                <Button size="icon-sm" rounded="lg" className="lg:hidden" type="button" onClick={startNewChat} title="New chat">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border/70 bg-background/72 px-4 py-2 lg:hidden">
               {chatState.sessions.map((session) => {
                 const SessionIcon = sessionIcon(session)
                 const isActive = activeSession.id === session.id
@@ -1419,47 +1565,19 @@ export function GeminiSparkChat() {
                       }))
                     }
                     className={cn(
-                      "grid min-h-20 grid-cols-[40px_minmax(0,1fr)] items-center gap-3 rounded-lg border px-3 py-2 text-left transition",
+                      "inline-flex h-9 max-w-44 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
                       isActive
-                        ? "border-primary/55 bg-primary/10 text-foreground shadow-[0_0_0_1px_rgba(245,180,50,0.16)]"
-                        : "border-transparent bg-background/40 text-muted-foreground hover:border-border hover:bg-background/75 hover:text-foreground",
+                        ? "border-primary/55 bg-primary/10 text-foreground"
+                        : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "flex h-10 w-10 items-center justify-center rounded-md border",
-                        isActive
-                          ? "border-primary/35 bg-primary/15 text-primary"
-                          : "border-border bg-secondary text-muted-foreground",
-                      )}
-                    >
-                      <SessionIcon className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">{session.title}</span>
-                      <span className="mt-1 block truncate text-xs leading-5">{sessionSubtitle(session)}</span>
-                    </span>
+                    <SessionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{session.title}</span>
                   </button>
                 )
               })}
             </div>
-          </aside>
 
-          <div className="flex min-h-[680px] flex-col rounded-xl border border-border bg-card/80 shadow-[0_34px_120px_rgba(0,0,0,0.38)] lg:h-full lg:min-h-0">
-            <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3 sm:px-5 xl:px-6">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/15 text-primary">
-                  <Bot className="h-5 w-5" aria-hidden="true" />
-                </span>
-                <div>
-                  <p className="text-xs text-muted-foreground">Active fused agent</p>
-                  <h2 className="text-sm font-semibold text-foreground">{activeSession.title}</h2>
-                </div>
-              </div>
-              <span className="hidden rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent sm:block">
-                {isWorkspaceReady ? "Gemini Spark ready" : "Gemini Spark"}
-              </span>
-            </div>
             {isWorkspaceBlocked && (
               <WorkspaceInitializationPanel
                 state={workspaceState === "failed" ? "failed" : "initializing"}
@@ -1469,180 +1587,219 @@ export function GeminiSparkChat() {
               />
             )}
 
-            <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5 xl:px-6">
-              {messages.map((message) => {
-                const isUser = message.role === "user"
-
-                return (
-                  <div
-                    key={message.id}
-                    className={cn("flex items-start gap-3", isUser ? "justify-end" : "justify-start")}
-                  >
-                    {!isUser && (
-                      <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
-                        {message.status === "thinking" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                        ) : (
-                          <Sparkles className="h-4 w-4" aria-hidden="true" />
-                        )}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div ref={messagesViewportRef} className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6">
+                <div
+                  className={cn(
+                    "mx-auto flex min-h-full w-full max-w-4xl flex-col gap-5 py-8",
+                    hasConversationStarted ? "justify-start" : "justify-center",
+                  )}
+                >
+                  {!hasConversationStarted && (
+                    <div className="mx-auto max-w-2xl text-center">
+                      <span className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                        <Sparkles className="h-5 w-5" aria-hidden="true" />
                       </span>
-                    )}
-                    <div
-                      className={cn(
-                        "max-w-[82%] rounded-xl border px-4 py-3 text-sm leading-6",
-                        isUser
-                          ? "border-primary/35 bg-primary text-primary-foreground"
-                          : message.status === "error"
-                            ? "border-destructive/40 bg-destructive/10 text-foreground"
-                            : "border-border bg-background/65 text-muted-foreground",
-                      )}
-                    >
-                      {message.status === "thinking" ? (
-                        <MarkdownMessage content={message.body || thinkingLines[thinkingIndex]} isUser={isUser} />
-                      ) : (
-                        <MarkdownMessage content={message.body} isUser={isUser} />
-                      )}
-                      {message.attachments && message.attachments.length > 0 && (
-                        <div className="mt-3 grid gap-2">
-                          {message.attachments.map((attachment) => (
-                            <div key={attachment.id} className="overflow-hidden rounded-lg border border-border">
-                              {attachmentKind(attachment) === "image" ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={attachment.dataUrl} alt={attachment.name} className="max-h-44 w-full object-cover" />
-                              ) : (
-                                <video src={attachment.dataUrl} className="max-h-44 w-full object-cover" controls />
+                      <p className="text-2xl font-semibold tracking-display text-foreground sm:text-3xl">
+                        Ready when you are
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                        Ask Gemini Spark for text, image, or video work from a single focused chat.
+                      </p>
+                    </div>
+                  )}
+
+                  {visibleMessages.map((message) => {
+                    const isUser = message.role === "user"
+
+                    return (
+                      <div
+                        key={message.id}
+                        className={cn("flex items-start gap-3", isUser ? "justify-end" : "justify-start")}
+                      >
+                        {!isUser && (
+                          <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+                            {message.status === "thinking" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Sparkles className="h-4 w-4" aria-hidden="true" />
+                            )}
+                          </span>
+                        )}
+                        <div
+                          className={cn(
+                            "text-sm leading-6",
+                            isUser
+                              ? "max-w-[78%] rounded-2xl bg-primary px-4 py-3 text-primary-foreground"
+                              : message.status === "error"
+                                ? "max-w-[82%] rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-foreground"
+                                : "max-w-[min(760px,100%)] text-muted-foreground",
+                          )}
+                        >
+                          {message.status === "thinking" ? (
+                            <MarkdownMessage content={message.body || thinkingLines[thinkingIndex]} isUser={isUser} />
+                          ) : (
+                            <MarkdownMessage content={message.body} isUser={isUser} />
+                          )}
+                          {message.attachments && message.attachments.length > 0 && (
+                            <div className="mt-3 grid gap-2">
+                              {message.attachments.map((attachment) => (
+                                <div key={attachment.id} className="overflow-hidden rounded-lg border border-border">
+                                  {attachmentKind(attachment) === "image" ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={attachment.dataUrl} alt={attachment.name} className="max-h-44 w-full object-cover" />
+                                  ) : (
+                                    <video src={attachment.dataUrl} className="max-h-44 w-full object-cover" controls />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {message.provider && (
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                              <span className="rounded-full border border-border bg-card px-2 py-1 text-muted-foreground">
+                                {AGENT_BRAND}
+                              </span>
+                            </div>
+                          )}
+                          {!isUser && (
+                            <OpenClawActivity events={message.events} workspaceId={message.workspaceId} model={message.model} />
+                          )}
+                          {message.media && (
+                            <div className="mt-3 grid max-w-[min(520px,100%)] gap-3">
+                              {message.media.urls.map((url) =>
+                                message.media?.type === "video" ? (
+                                  <video
+                                    key={url}
+                                    src={url}
+                                    className="max-h-[360px] w-auto max-w-full rounded-xl border border-border bg-background object-contain"
+                                    controls
+                                    onLoadedMetadata={() => scrollMessagesToBottom("smooth")}
+                                  />
+                                ) : (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    key={url}
+                                    src={url}
+                                    alt="Generated result"
+                                    className="max-h-[360px] w-auto max-w-full rounded-xl border border-border bg-background object-contain"
+                                    onLoad={() => scrollMessagesToBottom("smooth")}
+                                  />
+                                ),
                               )}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                      {message.provider && (
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                          <span className="rounded-full border border-border bg-card px-2 py-1 text-muted-foreground">
-                            {AGENT_BRAND}
-                          </span>
-                        </div>
-                      )}
-                      {!isUser && (
-                        <OpenClawActivity events={message.events} workspaceId={message.workspaceId} model={message.model} />
-                      )}
-                      {message.media && (
-                        <div className="mt-3 grid gap-3">
-                          {message.media.urls.map((url) =>
-                            message.media?.type === "video" ? (
-                              <video key={url} src={url} className="w-full rounded-lg border border-border" controls />
-                            ) : (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img key={url} src={url} alt="Generated result" className="w-full rounded-lg border border-border" />
-                            ),
                           )}
                         </div>
-                      )}
-                    </div>
-                    {isUser && (
-                      <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-foreground">
-                        <User className="h-4 w-4" aria-hidden="true" />
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            <form onSubmit={handleSubmit} className="border-t border-border p-3 sm:p-4 xl:p-5">
-              {!isSignedIn && (
-                <div className="mb-3 flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
-                  <span>Sign in with Google to start a Gemini Spark chat.</span>
-                  <Button type="button" size="sm" rounded="full" className="w-fit" onClick={signInWithGoogle} disabled={isSessionPending}>
-                    Sign in
-                  </Button>
-                </div>
-              )}
-
-              <div className="mb-3 flex flex-wrap gap-2">
-                {quickPrompts.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    onClick={() => setDraft(prompt)}
-                    disabled={isThinking || !isSignedIn || !isWorkspaceReady}
-                    className="rounded-full border border-border bg-background/55 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-
-              {attachments.length > 0 && (
-                <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                  {attachments.map((attachment) => (
-                    <div key={attachment.id} className="flex items-center gap-3 rounded-lg border border-border bg-background/55 p-2">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        {attachmentKind(attachment) === "video" ? (
-                          <Video className="h-4 w-4" aria-hidden="true" />
-                        ) : (
-                          <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                        {isUser && (
+                          <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-secondary text-foreground">
+                            <User className="h-4 w-4" aria-hidden="true" />
+                          </span>
                         )}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{attachment.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeAttachment(attachment.id)}
-                        className="rounded-md p-1 text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
-                        aria-label={`Remove ${attachment.name}`}
-                      >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
+                      </div>
+                    )
+                  })}
+                  <div ref={messagesEndRef} aria-hidden="true" className="h-1 shrink-0" />
                 </div>
-              )}
-
-              {attachmentError && <p className="mb-3 text-xs text-destructive">{attachmentError}</p>}
-
-              <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-end">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*,video/*"
-                  multiple
-                  className="sr-only"
-                  onChange={handleFiles}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  rounded="lg"
-                  className="h-12 gap-2 bg-transparent"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isThinking || !isSignedIn || !isWorkspaceReady}
-                >
-                  <Paperclip className="h-4 w-4" aria-hidden="true" />
-                  Attach
-                </Button>
-                <Textarea
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  className="min-h-24 resize-none border-border bg-background/65 text-sm leading-6"
-                  placeholder={
-                    !isSignedIn
-                      ? "Sign in to chat with Gemini Spark..."
-                      : isWorkspaceReady
-                        ? "Talk to Gemini Spark. Ask for text, image, or video work..."
-                        : "Gemini Spark workspace is initializing..."
-                  }
-                  aria-label="Message Gemini Spark"
-                  disabled={isThinking || !isSignedIn || !isWorkspaceReady}
-                />
-                <Button type="submit" rounded="lg" className="h-12 gap-2" disabled={isThinking || !isSignedIn || !isWorkspaceReady || !draft.trim()}>
-                  {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {isThinking ? "Thinking" : "Send"}
-                </Button>
               </div>
-            </form>
+
+              <form onSubmit={handleSubmit} className="shrink-0 px-4 pb-5 pt-3 sm:px-6">
+                <div className="mx-auto w-full max-w-4xl">
+                  {!isSignedIn && (
+                    <div className="mb-3 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
+                      <span>Sign in with Google to start a Gemini Spark chat.</span>
+                      <Button type="button" size="sm" rounded="full" className="w-fit" onClick={signInWithGoogle} disabled={isSessionPending}>
+                        Sign in
+                      </Button>
+                    </div>
+                  )}
+
+                  {!hasConversationStarted && (
+                    <div className="mb-3 flex flex-wrap justify-center gap-2">
+                      {quickPrompts.map((prompt) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          onClick={() => setDraft(prompt)}
+                          disabled={isThinking || !isSignedIn || !isWorkspaceReady}
+                          className="rounded-full border border-border bg-background/70 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {attachments.length > 0 && (
+                    <div className="mb-3 grid gap-2 sm:grid-cols-2">
+                      {attachments.map((attachment) => (
+                        <div key={attachment.id} className="flex items-center gap-3 rounded-lg border border-border bg-background/70 p-2">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                            {attachmentKind(attachment) === "video" ? (
+                              <Video className="h-4 w-4" aria-hidden="true" />
+                            ) : (
+                              <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{attachment.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(attachment.id)}
+                            className="rounded-md p-1 text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
+                            aria-label={`Remove ${attachment.name}`}
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {attachmentError && <p className="mb-3 text-xs text-destructive">{attachmentError}</p>}
+
+                  <div className="grid gap-2 rounded-2xl border border-border bg-card/88 p-2 shadow-[0_18px_60px_rgba(0,0,0,0.32)] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-end">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      multiple
+                      className="sr-only"
+                      onChange={handleFiles}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      rounded="xl"
+                      className="h-11 gap-2 bg-transparent"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isThinking || !isSignedIn || !isWorkspaceReady}
+                    >
+                      <Paperclip className="h-4 w-4" aria-hidden="true" />
+                      Attach
+                    </Button>
+                    <Textarea
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      className="min-h-11 resize-none border-0 bg-transparent px-2 py-2 text-sm leading-6 shadow-none focus-visible:ring-0"
+                      placeholder={
+                        !isSignedIn
+                          ? "Sign in to chat with Gemini Spark..."
+                          : isWorkspaceReady
+                            ? "Ask Gemini Spark for text, image, or video work..."
+                            : "Gemini Spark workspace is initializing..."
+                      }
+                      aria-label="Message Gemini Spark"
+                      disabled={isThinking || !isSignedIn || !isWorkspaceReady}
+                    />
+                    <Button type="submit" rounded="xl" className="h-11 gap-2" disabled={isThinking || !isSignedIn || !isWorkspaceReady || !draft.trim()}>
+                      {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {isThinking ? "Thinking" : "Send"}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            </div>
           </div>
 
-        </div>
       </div>
       <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
         <DialogContent className="max-w-2xl border-border bg-card">
