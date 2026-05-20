@@ -1,11 +1,10 @@
-import { NextResponse } from "next/server"
-
-import { getAgentApiAuthHeaders, getAgentApiUrl, getSessionOwnerId } from "../tasks/proxy"
+import { getAgentApiAuthHeaders, getSessionOwnerId, jsonError, proxyJsonResponse, requireAgentApiUrl } from "./proxy"
 
 type ClientAttachment = {
   name: string
   type: string
-  dataUrl: string
+  dataUrl?: string
+  url?: string
 }
 
 type ClientMessage = {
@@ -13,7 +12,7 @@ type ClientMessage = {
   body: string
 }
 
-type AgentRequest = {
+type AgentTaskRequest = {
   message: string
   attachments?: ClientAttachment[]
   history?: ClientMessage[]
@@ -23,23 +22,14 @@ type AgentRequest = {
 }
 
 const PUBLIC_AGENT_NAME = "Gemini Spark"
-function jsonError(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status })
-}
 
 export async function POST(request: Request) {
   try {
-    const payload = (await request.json()) as AgentRequest
+    const payload = (await request.json()) as AgentTaskRequest
     const message = payload.message?.trim()
 
     if (!message) {
       return jsonError("Message is required.")
-    }
-
-    const agentApiUrl = getAgentApiUrl()
-
-    if (!agentApiUrl) {
-      return jsonError("Gemini Spark task API is not configured.", 500)
     }
 
     const ownerId = await getSessionOwnerId(request)
@@ -47,6 +37,7 @@ export async function POST(request: Request) {
       return jsonError("Sign in to chat with Gemini Spark.", 401)
     }
 
+    const agentApiUrl = requireAgentApiUrl()
     const response = await fetch(`${agentApiUrl}/tasks`, {
       method: "POST",
       headers: {
@@ -60,9 +51,8 @@ export async function POST(request: Request) {
         externalUserId: ownerId,
       }),
     })
-    const body = await response.json()
 
-    return NextResponse.json(body, { status: response.ok ? 202 : response.status })
+    return proxyJsonResponse(response, 202)
   } catch {
     return jsonError(`${PUBLIC_AGENT_NAME} request failed. Please try again.`, 502)
   }

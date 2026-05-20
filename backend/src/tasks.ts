@@ -1,10 +1,11 @@
 import { ArtifactKind, Prisma, TaskIntent, TaskStatus } from "@prisma/client"
 
+import { creditCostForIntent, debitTaskCreditsTx, refundTaskCredits } from "./billing.js"
 import { prisma } from "./db.js"
 import { fromDbIntent, selectIntent, toDbIntent } from "./intent.js"
 import { getTaskQueue } from "./queue.js"
 import { runProviderForIntent } from "./providers.js"
-import type { AgentIntent, ClientAttachment, ClientMessage, ProviderResult, TaskInput } from "./types.js"
+import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult, TaskInput } from "./types.js"
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELED])
 
@@ -70,6 +71,8 @@ export function serializeTask(
     progress: task.progress,
     provider: task.provider,
     model: task.model,
+    creditCost: task.creditCost,
+    workspaceId: task.workspaceId,
     message,
     error: task.error,
     media: inferMediaFromArtifacts(task.artifacts),
@@ -139,6 +142,31 @@ export async function appendTaskEvent(taskId: string, type: string, message: str
   })
 }
 
+function progressFromProviderEvent(event: ProviderEvent) {
+  const data = event.data && typeof event.data === "object" ? (event.data as Record<string, unknown>) : {}
+  const progress = data.progress
+  return typeof progress === "number" && Number.isFinite(progress)
+    ? Math.max(10, Math.min(95, Math.round(progress)))
+    : undefined
+}
+
+async function appendProviderEvent(taskId: string, event: ProviderEvent) {
+  const progress = progressFromProviderEvent(event)
+  await appendTaskEvent(taskId, event.type, event.message, {
+    source: "openclaw",
+    providerEventId: event.id,
+    providerCreatedAt: event.createdAt,
+    ...(event.data && typeof event.data === "object" ? (event.data as Record<string, unknown>) : { value: event.data }),
+  })
+
+  if (progress !== undefined) {
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { progress },
+    })
+  }
+}
+
 export async function createTask(params: CreateTaskParams) {
   const message = params.message.trim()
   if (!message) {
@@ -154,35 +182,59 @@ export async function createTask(params: CreateTaskParams) {
     externalUserId: params.externalUserId,
   }
   const intent = selectIntent(message, input.attachments)
+  const dbIntent = toDbIntent(intent)
+  const creditCost = creditCostForIntent(dbIntent)
 
-  const task = await prisma.task.create({
-    data: {
-      clientTaskId: params.clientTaskId,
-      externalUserId: params.externalUserId,
-      sessionId: params.sessionId,
-      message,
-      intent: toDbIntent(intent),
-      input: toJson(input),
-      events: {
-        create: {
-          type: "queued",
-          message: "Task queued.",
+  const task = await prisma.$transaction(async (tx) => {
+    const created = await tx.task.create({
+      data: {
+        clientTaskId: params.clientTaskId,
+        externalUserId: params.externalUserId,
+        sessionId: params.sessionId,
+        message,
+        intent: dbIntent,
+        creditCost,
+        input: toJson(input),
+        events: {
+          create: {
+            type: "queued",
+            message: "Task queued.",
+          },
         },
       },
-    },
-    include: {
-      artifacts: true,
-      events: {
-        orderBy: { createdAt: "asc" },
-        take: 100,
+      include: {
+        artifacts: true,
+        events: {
+          orderBy: { createdAt: "asc" },
+          take: 100,
+        },
       },
-    },
+    })
+
+    if (params.externalUserId) {
+      const creditBucket = await debitTaskCreditsTx(tx, {
+        userId: params.externalUserId,
+        taskId: created.id,
+        cost: creditCost,
+        intent: dbIntent,
+      })
+
+      await tx.task.update({
+        where: { id: created.id },
+        data: {
+          creditBucket,
+        },
+      })
+    }
+
+    return created
   })
 
   try {
     await getTaskQueue().add("run-agent-task", { taskId: task.id }, { jobId: task.id })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to enqueue task."
+    await refundTaskCredits(task.id, "Task was not queued; credits refunded.")
     await prisma.task.update({
       where: { id: task.id },
       data: {
@@ -263,6 +315,7 @@ async function storeProviderResult(taskId: string, result: ProviderResult) {
         progress: 100,
         provider: result.provider,
         model: result.model,
+        workspaceId: result.workspaceId,
         result: toJson(result),
         error: null,
         finishedAt: new Date(),
@@ -304,10 +357,21 @@ export async function processTask(taskId: string) {
   await appendTaskEvent(taskId, "running", "Task started.", { intent })
 
   try {
-    const result = await runProviderForIntent(intent, input.message, input.history, input.attachments)
+    const result = await runProviderForIntent(intent, input.message, input.history, input.attachments, {
+      taskId,
+      userId: task.externalUserId || undefined,
+      onEvent: (event) => appendProviderEvent(taskId, event),
+    })
     await storeProviderResult(taskId, result)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Task failed."
+    if (
+      message.startsWith("OpenClaw Gateway is missing") ||
+      message.includes("OpenClaw Gateway did not return")
+    ) {
+      await refundTaskCredits(taskId, "OpenClaw task did not start cleanly; credits refunded.")
+    }
+
     await prisma.task.update({
       where: { id: taskId },
       data: {

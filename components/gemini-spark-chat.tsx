@@ -4,22 +4,39 @@ import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "r
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
+  AlertTriangle,
   ArrowRight,
   Bot,
+  CheckCircle2,
+  CreditCard,
   ImageIcon,
   Loader2,
   MessageSquare,
   Paperclip,
   Plus,
+  RefreshCw,
   Send,
+  Server,
+  ShieldCheck,
   Sparkles,
+  Terminal,
   User,
   Video,
+  Wallet,
   X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { BILLING_PLANS, type BillingInterval, type PaidPlan } from "@/lib/billing-config"
+import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
 type ClientAttachment = {
@@ -43,6 +60,8 @@ type ChatMessage = {
   model?: string
   intent?: string
   media?: AgentMedia
+  workspaceId?: string | null
+  events?: AgentTaskEvent[]
   attachments?: ClientAttachment[]
 }
 
@@ -74,6 +93,7 @@ type AgentTaskEvent = {
   id: string
   type: string
   message: string
+  data?: Record<string, unknown> | null
   createdAt: string
 }
 
@@ -90,6 +110,8 @@ type AgentTask = {
   intent: string
   status: AgentTaskStatus
   progress: number
+  creditCost?: number
+  workspaceId?: string | null
   provider?: string | null
   model?: string | null
   message?: string | null
@@ -99,17 +121,39 @@ type AgentTask = {
   events?: AgentTaskEvent[]
 }
 
+type AccountBootstrap = {
+  credits: {
+    freeCreditsRemaining: number
+    periodCreditsRemaining: number
+    totalCredits: number
+    plan: string
+    subscriptionStatus: string
+    costs: {
+      text: number
+      image: number
+      "text-to-video": number
+      "image-to-video": number
+    }
+  }
+  workspace: {
+    provider: string
+    status: string
+    workspaceId: string | null
+    initializedAt?: string | null
+    lastUsedAt?: string | null
+    error?: string | null
+  }
+}
+
 const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024
 const MAX_PERSISTED_ATTACHMENT_BYTES = 400_000
 const MAX_PERSISTED_SESSIONS = 30
 const MAX_PERSISTED_MESSAGES = 120
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY = "gemini-spark:chat-sessions:v1"
-const CLIENT_ID_STORAGE_KEY = "gemini-spark:client-id:v1"
-const CLIENT_OWNER_HEADER = "x-geminispark-client-id"
-const AGENT_API_BASE_URL = (process.env.NEXT_PUBLIC_AGENT_API_URL || "").replace(/\/$/, "")
+const AGENT_API_BASE_PATH = "/api/gemini-spark"
 const WELCOME_MESSAGE =
-  "Send text, attach an image, or ask for a video. I will think first, choose the best Gemini Spark route, then run the request from the server."
+  "Sign in to initialize your OpenClaw workspace, then send text, image, or video tasks through the agent."
 
 const quickPrompts = [
   "Create a cinematic product video from this idea.",
@@ -118,11 +162,11 @@ const quickPrompts = [
 ]
 
 const thinkingLines = [
-  "Thinking through the request...",
-  "Reading the conversation context...",
+  "Connecting to OpenClaw...",
+  "Reading the workspace context...",
   "Checking whether this should be text, image, or video...",
-  "Looking for the strongest Gemini Spark route...",
-  "Comparing Gemini Spark text, image, and video paths...",
+  "Preparing the OpenClaw run...",
+  "Selecting the safest tool path...",
   "Inspecting attached media and prompt intent...",
   "Separating planning work from generation work...",
   "Estimating whether a media task needs async polling...",
@@ -149,38 +193,7 @@ function wait(ms: number) {
 }
 
 function agentApiUrl(path: string) {
-  if (!AGENT_API_BASE_URL) {
-    throw new Error("NEXT_PUBLIC_AGENT_API_URL is not configured.")
-  }
-
-  return `${AGENT_API_BASE_URL}${path}`
-}
-
-function createClientOwnerId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `browser-${crypto.randomUUID()}`
-  }
-
-  return `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function getClientOwnerId() {
-  if (typeof window === "undefined") {
-    return createClientOwnerId()
-  }
-
-  try {
-    const existing = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY)?.trim()
-    if (existing) {
-      return existing
-    }
-
-    const next = createClientOwnerId()
-    window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, next)
-    return next
-  } catch {
-    return createClientOwnerId()
-  }
+  return `${AGENT_API_BASE_PATH}${path}`
 }
 
 function latestTaskEvent(task: AgentTask) {
@@ -206,11 +219,192 @@ function taskToAgentResponse(task: AgentTask): AgentResponse {
   }
 }
 
-async function fetchTask(taskId: string, ownerId: string) {
+function eventData(event: AgentTaskEvent) {
+  return event.data && typeof event.data === "object" ? event.data : {}
+}
+
+function isOpenClawEvent(event: AgentTaskEvent) {
+  const data = eventData(event)
+  return data.source === "openclaw" || event.type.startsWith("openclaw") || event.type.includes("workspace") || event.type.includes("tool") || event.type.includes("provider") || event.type.includes("artifact") || event.type === "run_created" || event.type === "model_selected" || event.type === "completed"
+}
+
+function shortWorkspaceId(workspaceId?: string | null) {
+  if (!workspaceId) {
+    return "pending"
+  }
+
+  return workspaceId.length > 12 ? `${workspaceId.slice(0, 8)}...${workspaceId.slice(-4)}` : workspaceId
+}
+
+function activityLabel(type: string) {
+  return type
+    .split(/[_:.]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
+function workspaceGateState(
+  isSignedIn: boolean,
+  isSessionPending: boolean,
+  account: AccountBootstrap | null,
+  bootstrapError: string,
+) {
+  if (!isSignedIn) {
+    return "signed-out" as const
+  }
+
+  if (isSessionPending || (!account && !bootstrapError)) {
+    return "initializing" as const
+  }
+
+  const status = account?.workspace.status.toLowerCase()
+  if (status === "ready") {
+    return "ready" as const
+  }
+
+  if (bootstrapError || status === "failed" || status === "missing") {
+    return "failed" as const
+  }
+
+  return "initializing" as const
+}
+
+function WorkspaceInitializationPanel({
+  state,
+  workspace,
+  error,
+  onRetry,
+}: {
+  state: "initializing" | "failed"
+  workspace?: AccountBootstrap["workspace"]
+  error: string
+  onRetry: () => void
+}) {
+  const failed = state === "failed"
+
+  return (
+    <div className="border-b border-border bg-background/55 px-4 py-4 sm:px-5 xl:px-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <span
+            className={cn(
+              "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md border",
+              failed ? "border-destructive/35 bg-destructive/10 text-destructive" : "border-primary/35 bg-primary/10 text-primary",
+            )}
+          >
+            {failed ? <AlertTriangle className="h-5 w-5" aria-hidden="true" /> : <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />}
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              {failed ? "OpenClaw workspace needs attention" : "Initializing OpenClaw workspace"}
+            </p>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+              {failed
+                ? workspace?.error || error || "The workspace could not be initialized. Retry before sending a message."
+                : "Preparing an isolated VPS workspace and connecting the agent runtime before chat starts."}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3 lg:min-w-[420px]">
+          <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2">
+            <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            User isolated
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2">
+            <Server className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            {shortWorkspaceId(workspace?.workspaceId)}
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2">
+            <Terminal className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            {failed ? "Retry required" : "Connecting"}
+          </span>
+        </div>
+        {failed && (
+          <Button type="button" size="sm" rounded="full" className="w-fit gap-2" onClick={onRetry}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OpenClawActivity({
+  events,
+  workspaceId,
+  model,
+}: {
+  events?: AgentTaskEvent[]
+  workspaceId?: string | null
+  model?: string
+}) {
+  const activity = (events || []).filter(isOpenClawEvent).slice(-5)
+  if (activity.length === 0 && !workspaceId && !model) {
+    return null
+  }
+
+  const latest = activity[activity.length - 1]
+  const artifactEvents = activity.filter((event) => typeof eventData(event).artifactUrl === "string")
+
+  return (
+    <div className="mt-3 border-t border-border/80 pt-3 text-xs">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-foreground">
+        <span className="inline-flex items-center gap-1.5 font-semibold">
+          <Terminal className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          OpenClaw Activity
+        </span>
+        {workspaceId && (
+          <span className="rounded-full border border-border bg-card px-2 py-0.5 text-muted-foreground">
+            {shortWorkspaceId(workspaceId)}
+          </span>
+        )}
+        {model && (
+          <span className="rounded-full border border-border bg-card px-2 py-0.5 text-muted-foreground">
+            {model}
+          </span>
+        )}
+      </div>
+      {latest && <p className="mb-2 text-muted-foreground">{latest.message}</p>}
+      {activity.length > 0 && (
+        <div className="grid gap-1.5">
+          {activity.map((event) => (
+            <div key={event.id} className="flex items-center gap-2 text-muted-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+              <span className="shrink-0 text-foreground/80">{activityLabel(event.type)}</span>
+              <span className="min-w-0 truncate">{event.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {artifactEvents.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {artifactEvents.map((event) => {
+            const data = eventData(event)
+            const url = typeof data.artifactUrl === "string" ? data.artifactUrl : ""
+            return (
+              <a
+                key={`${event.id}-${url}`}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-primary transition hover:bg-primary/15"
+              >
+                {typeof data.artifactType === "string" ? data.artifactType : "artifact"}
+              </a>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+async function fetchTask(taskId: string) {
   const response = await fetch(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}`), {
     headers: {
       Accept: "application/json",
-      [CLIENT_OWNER_HEADER]: ownerId,
     },
   })
   const data = (await response.json()) as AgentTask | { error?: string }
@@ -222,13 +416,28 @@ async function fetchTask(taskId: string, ownerId: string) {
   return data as AgentTask
 }
 
+async function fetchAccountBootstrap() {
+  const response = await fetch(agentApiUrl("/bootstrap"), {
+    headers: {
+      Accept: "application/json",
+    },
+  })
+  const data = (await response.json()) as AccountBootstrap | { error?: string }
+
+  if (!response.ok) {
+    throw new Error(("error" in data && data.error) || "Account initialization failed.")
+  }
+
+  return data as AccountBootstrap
+}
+
 function isTerminalTask(task: AgentTask) {
   return task.status === "succeeded" || task.status === "failed" || task.status === "canceled"
 }
 
-async function pollTaskUntilDone(taskId: string, ownerId: string, onUpdate: (task: AgentTask) => void) {
+async function pollTaskUntilDone(taskId: string, onUpdate: (task: AgentTask) => void) {
   for (;;) {
-    const task = await fetchTask(taskId, ownerId)
+    const task = await fetchTask(taskId)
     onUpdate(task)
 
     if (isTerminalTask(task)) {
@@ -239,16 +448,14 @@ async function pollTaskUntilDone(taskId: string, ownerId: string, onUpdate: (tas
   }
 }
 
-async function waitForTaskCompletion(taskId: string, ownerId: string, onUpdate: (task: AgentTask) => void) {
+async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask) => void) {
   if (typeof EventSource === "undefined") {
-    return pollTaskUntilDone(taskId, ownerId, onUpdate)
+    return pollTaskUntilDone(taskId, onUpdate)
   }
 
   return new Promise<AgentTask>((resolve, reject) => {
     let settled = false
-    const source = new EventSource(
-      agentApiUrl(`/tasks/${encodeURIComponent(taskId)}/events?clientId=${encodeURIComponent(ownerId)}`),
-    )
+    const source = new EventSource(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}/events`))
 
     function settle(callback: () => void) {
       if (settled) {
@@ -275,7 +482,7 @@ async function waitForTaskCompletion(taskId: string, ownerId: string, onUpdate: 
 
     source.addEventListener("error", () => {
       source.close()
-      pollTaskUntilDone(taskId, ownerId, onUpdate).then(resolve, reject)
+      pollTaskUntilDone(taskId, onUpdate).then(resolve, reject)
     })
   })
 }
@@ -337,6 +544,7 @@ function sanitizeMessageForStorage(message: ChatMessage): ChatMessage {
 
   return {
     ...message,
+    events: message.events?.slice(-8),
     attachments: attachments && attachments.length > 0 ? attachments : undefined,
   }
 }
@@ -713,12 +921,19 @@ function MarkdownMessage({ content, isUser }: { content: string; isUser: boolean
 }
 
 export function GeminiSparkChat() {
+  const { data: session, isPending: isSessionPending } = authClient.useSession()
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
   const [isThinking, setIsThinking] = useState(false)
   const [isStorageReady, setIsStorageReady] = useState(false)
   const [thinkingIndex, setThinkingIndex] = useState(0)
   const [attachmentError, setAttachmentError] = useState("")
+  const [account, setAccount] = useState<AccountBootstrap | null>(null)
+  const [bootstrapError, setBootstrapError] = useState("")
+  const [billingOpen, setBillingOpen] = useState(false)
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("year")
+  const [billingError, setBillingError] = useState("")
+  const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const hasLoadedUrlPromptRef = useRef(false)
   const [chatState, setChatState] = useState<ChatState>(() => createInitialChatState())
@@ -726,6 +941,86 @@ export function GeminiSparkChat() {
   const activeSession =
     chatState.sessions.find((session) => session.id === chatState.activeSessionId) ?? chatState.sessions[0]
   const messages = activeSession.messages
+  const isSignedIn = Boolean(session?.user)
+  const workspaceState = workspaceGateState(isSignedIn, isSessionPending, account, bootstrapError)
+  const isWorkspaceReady = workspaceState === "ready"
+  const isWorkspaceBlocked = isSignedIn && !isWorkspaceReady
+
+  function signInWithGoogle() {
+    void authClient.signIn.social({
+      provider: "google",
+      callbackURL: "/gemini-spark",
+    })
+  }
+
+  function signOut() {
+    void authClient.signOut()
+  }
+
+  async function refreshAccount() {
+    setBootstrapError("")
+
+    try {
+      const nextAccount = await fetchAccountBootstrap()
+      setAccount(nextAccount)
+      return nextAccount
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "OpenClaw workspace initialization failed."
+      setAccount(null)
+      setBootstrapError(message)
+      throw error
+    }
+  }
+
+  async function startCheckout(plan: PaidPlan) {
+    setBillingError("")
+    setCheckoutPlan(plan)
+
+    try {
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ plan, interval: billingInterval }),
+      })
+      const data = (await response.json()) as { url?: string; error?: string }
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Checkout could not be started.")
+      }
+
+      window.location.assign(data.url)
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
+    } finally {
+      setCheckoutPlan(null)
+    }
+  }
+
+  async function openBillingPortal() {
+    setBillingError("")
+
+    try {
+      const response = await fetch("/api/billing/portal", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+        },
+      })
+      const data = (await response.json()) as { url?: string; error?: string }
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Billing portal could not be opened.")
+      }
+
+      window.location.assign(data.url)
+    } catch (error) {
+      setBillingError(error instanceof Error ? error.message : "Billing portal could not be opened.")
+      setBillingOpen(true)
+    }
+  }
 
   useEffect(() => {
     if (hasLoadedUrlPromptRef.current) {
@@ -751,6 +1046,34 @@ export function GeminiSparkChat() {
     setDraft(nextDraft)
     setIsStorageReady(true)
   }, [])
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setAccount(null)
+      setBootstrapError("")
+      return
+    }
+
+    let cancelled = false
+    setBootstrapError("")
+    fetchAccountBootstrap()
+      .then((nextAccount) => {
+        if (!cancelled) {
+          setAccount(nextAccount)
+          setBootstrapError("")
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAccount(null)
+          setBootstrapError(error instanceof Error ? error.message : "OpenClaw workspace initialization failed.")
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isSignedIn])
 
   useEffect(() => {
     if (!isStorageReady) {
@@ -839,7 +1162,10 @@ export function GeminiSparkChat() {
     event.preventDefault()
 
     const cleanDraft = draft.trim()
-    if (!cleanDraft || isThinking) {
+    if (!cleanDraft || isThinking || !isSignedIn || !isWorkspaceReady) {
+      if (isSignedIn && !isWorkspaceReady) {
+        void refreshAccount().catch(() => undefined)
+      }
       return
     }
 
@@ -883,20 +1209,17 @@ export function GeminiSparkChat() {
     setIsThinking(true)
 
     try {
-      const ownerId = getClientOwnerId()
       const response = await fetch(agentApiUrl("/tasks"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          [CLIENT_OWNER_HEADER]: ownerId,
         },
         body: JSON.stringify({
           message: cleanDraft,
           attachments: submittedAttachments.map(({ name, type, dataUrl }) => ({ name, type, dataUrl })),
           sessionId,
           clientTaskId: thinkingMessage.id,
-          externalUserId: ownerId,
           history: messages
             .filter((message) => message.status !== "thinking")
             .slice(-8)
@@ -907,6 +1230,11 @@ export function GeminiSparkChat() {
       const data = (await response.json()) as AgentTask | { error?: string }
 
       if (!response.ok) {
+        if (response.status === 402) {
+          setBillingOpen(true)
+          void refreshAccount().catch(() => undefined)
+        }
+
         throw new Error(("error" in data && data.error) || "Agent request failed.")
       }
 
@@ -915,6 +1243,7 @@ export function GeminiSparkChat() {
       }
 
       const submittedTask = data as AgentTask
+      void refreshAccount().catch(() => undefined)
       const updateFromTask = (task: AgentTask) => {
         const latestEvent = latestTaskEvent(task)
         const pendingMessage =
@@ -940,6 +1269,8 @@ export function GeminiSparkChat() {
                           provider: isDone ? agentData.provider : undefined,
                           model: isDone ? agentData.model : undefined,
                           intent: agentData.intent,
+                          workspaceId: task.workspaceId,
+                          events: task.events,
                           media: isDone ? agentData.media : undefined,
                         }
                       : message,
@@ -956,7 +1287,7 @@ export function GeminiSparkChat() {
       }
 
       updateFromTask(submittedTask)
-      const completedTask = await waitForTaskCompletion(submittedTask.id, ownerId, updateFromTask)
+      const completedTask = await waitForTaskCompletion(submittedTask.id, updateFromTask)
 
       if (completedTask.status !== "succeeded") {
         throw new Error(completedTask.error || completedTask.message || "Gemini Spark task did not complete.")
@@ -990,6 +1321,7 @@ export function GeminiSparkChat() {
       })
     } finally {
       setIsThinking(false)
+      void refreshAccount().catch(() => undefined)
     }
   }
 
@@ -1024,10 +1356,35 @@ export function GeminiSparkChat() {
               Gemini Spark Chat
             </h1>
           </div>
-          <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={startNewChat}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            New chat
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isSignedIn ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
+                  <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                  {account ? `${account.credits.totalCredits} credits` : "Credits..."}
+                </span>
+                <Button size="sm" variant="outline" rounded="full" className="w-fit gap-2 bg-transparent" type="button" onClick={() => setBillingOpen(true)}>
+                  <CreditCard className="h-4 w-4" aria-hidden="true" />
+                  Upgrade
+                </Button>
+                <span className="max-w-[220px] truncate rounded-full border border-border bg-card/75 px-3 py-1.5 text-xs text-muted-foreground">
+                  {session?.user.email || session?.user.name}
+                </span>
+                <Button size="sm" variant="outline" rounded="full" className="w-fit bg-transparent" type="button" onClick={signOut}>
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={signInWithGoogle} disabled={isSessionPending}>
+                <User className="h-4 w-4" aria-hidden="true" />
+                Sign in with Google
+              </Button>
+            )}
+            <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={startNewChat}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New chat
+            </Button>
+          </div>
         </div>
 
         <div className="grid flex-1 gap-4 lg:min-h-0 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)] 2xl:grid-cols-[420px_minmax(0,1fr)]">
@@ -1091,9 +1448,17 @@ export function GeminiSparkChat() {
                 </div>
               </div>
               <span className="hidden rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent sm:block">
-                Gemini Spark
+                {isWorkspaceReady ? "OpenClaw ready" : "OpenClaw"}
               </span>
             </div>
+            {isWorkspaceBlocked && (
+              <WorkspaceInitializationPanel
+                state={workspaceState === "failed" ? "failed" : "initializing"}
+                workspace={account?.workspace}
+                error={bootstrapError}
+                onRetry={() => void refreshAccount().catch(() => undefined)}
+              />
+            )}
 
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5 xl:px-6">
               {messages.map((message) => {
@@ -1149,6 +1514,9 @@ export function GeminiSparkChat() {
                           </span>
                         </div>
                       )}
+                      {!isUser && (
+                        <OpenClawActivity events={message.events} workspaceId={message.workspaceId} model={message.model} />
+                      )}
                       {message.media && (
                         <div className="mt-3 grid gap-3">
                           {message.media.urls.map((url) =>
@@ -1173,13 +1541,22 @@ export function GeminiSparkChat() {
             </div>
 
             <form onSubmit={handleSubmit} className="border-t border-border p-3 sm:p-4 xl:p-5">
+              {!isSignedIn && (
+                <div className="mb-3 flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
+                  <span>Sign in with Google to start a Gemini Spark chat.</span>
+                  <Button type="button" size="sm" rounded="full" className="w-fit" onClick={signInWithGoogle} disabled={isSessionPending}>
+                    Sign in
+                  </Button>
+                </div>
+              )}
+
               <div className="mb-3 flex flex-wrap gap-2">
                 {quickPrompts.map((prompt) => (
                   <button
                     key={prompt}
                     type="button"
                     onClick={() => setDraft(prompt)}
-                    disabled={isThinking}
+                    disabled={isThinking || !isSignedIn || !isWorkspaceReady}
                     className="rounded-full border border-border bg-background/55 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {prompt}
@@ -1229,7 +1606,7 @@ export function GeminiSparkChat() {
                   rounded="lg"
                   className="h-12 gap-2 bg-transparent"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isThinking}
+                  disabled={isThinking || !isSignedIn || !isWorkspaceReady}
                 >
                   <Paperclip className="h-4 w-4" aria-hidden="true" />
                   Attach
@@ -1238,11 +1615,17 @@ export function GeminiSparkChat() {
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   className="min-h-24 resize-none border-border bg-background/65 text-sm leading-6"
-                  placeholder="Ask for text, image, or video. Gemini Spark will route automatically..."
+                  placeholder={
+                    !isSignedIn
+                      ? "Sign in to chat with Gemini Spark..."
+                      : isWorkspaceReady
+                        ? "Talk to OpenClaw. Ask for text, image, or video work..."
+                        : "OpenClaw workspace is initializing..."
+                  }
                   aria-label="Message Gemini Spark"
-                  disabled={isThinking}
+                  disabled={isThinking || !isSignedIn || !isWorkspaceReady}
                 />
-                <Button type="submit" rounded="lg" className="h-12 gap-2" disabled={isThinking || !draft.trim()}>
+                <Button type="submit" rounded="lg" className="h-12 gap-2" disabled={isThinking || !isSignedIn || !isWorkspaceReady || !draft.trim()}>
                   {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {isThinking ? "Thinking" : "Send"}
                 </Button>
@@ -1252,6 +1635,71 @@ export function GeminiSparkChat() {
 
         </div>
       </div>
+      <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
+        <DialogContent className="max-w-2xl border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>Upgrade Gemini Spark</DialogTitle>
+            <DialogDescription>
+              Credits are used for every task. Chat costs 1 credit, images cost 5, and videos cost 10.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex w-fit rounded-full border border-border bg-background/60 p-1">
+            {(["year", "month"] as const).map((interval) => (
+              <button
+                key={interval}
+                type="button"
+                onClick={() => setBillingInterval(interval)}
+                className={cn(
+                  "rounded-full px-4 py-1.5 text-xs font-medium transition",
+                  billingInterval === interval ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {interval === "year" ? "Yearly" : "Monthly"}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(["STARTUP", "PRO"] as const).map((plan) => {
+              const details = BILLING_PLANS[plan]
+              const price = billingInterval === "year" ? details.yearlyPriceUsd : details.monthlyPriceUsd
+
+              return (
+                <div key={plan} className="rounded-lg border border-border bg-background/55 p-4">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{details.label}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{details.monthlyCredits} credits each month</p>
+                    </div>
+                    <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                      ${price}/{billingInterval === "year" ? "yr" : "mo"}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    rounded="lg"
+                    className="w-full gap-2"
+                    onClick={() => void startCheckout(plan)}
+                    disabled={checkoutPlan !== null}
+                  >
+                    {checkoutPlan === plan ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
+                    Continue
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+
+          {account?.credits.plan !== "free" && (
+            <Button type="button" variant="outline" rounded="lg" className="w-fit bg-transparent" onClick={() => void openBillingPortal()}>
+              Manage billing
+            </Button>
+          )}
+
+          {billingError && <p className="text-sm text-destructive">{billingError}</p>}
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

@@ -2,9 +2,11 @@ import cors from "@fastify/cors"
 import Fastify from "fastify"
 import { z } from "zod"
 
+import { PaymentRequiredError } from "./billing.js"
 import { config } from "./config.js"
-import { disconnectPrisma } from "./db.js"
+import { disconnectPrisma, prisma } from "./db.js"
 import { registerMcpRoutes } from "./mcp.js"
+import { ensureOpenClawWorkspace } from "./providers.js"
 import { closeTaskQueue } from "./queue.js"
 import { cancelTask, createTask, getTaskForOwner, isTerminalStatus, serializeTask } from "./tasks.js"
 
@@ -34,6 +36,12 @@ const createTaskBodySchema = z.object({
   clientTaskId: z.string().optional(),
   externalUserId: z.string().optional(),
 })
+
+const workspaceBodySchema = z
+  .object({
+    externalUserId: z.string().optional(),
+  })
+  .optional()
 
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) {
@@ -91,7 +99,7 @@ export function buildServer() {
       callback(new Error("Origin not allowed."), false)
     },
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Accept", "Content-Type", OWNER_HEADER],
+    allowedHeaders: ["Accept", "Authorization", "Content-Type", OWNER_HEADER],
   })
 
   app.get("/health", async () => ({
@@ -100,7 +108,72 @@ export function buildServer() {
     time: new Date().toISOString(),
   }))
 
+  function requireAgentApiAuthorization(request: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }) {
+    if (!config.agentApiToken) {
+      return reply.code(500).send({ error: "AGENT_API_TOKEN is not configured." })
+    }
+
+    if (firstHeader(request.headers.authorization) !== `Bearer ${config.agentApiToken}`) {
+      return reply.code(401).send({ error: "Unauthorized." })
+    }
+
+    return undefined
+  }
+
+  app.post("/workspaces", async (request, reply) => {
+    const unauthorized = requireAgentApiAuthorization(request, reply)
+    if (unauthorized) {
+      return unauthorized
+    }
+
+    const parsed = workspaceBodySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: "Invalid workspace payload.",
+        details: parsed.error.flatten(),
+      })
+    }
+
+    const ownerId = ownerFromRequest(request, parsed.data?.externalUserId)
+    if (!ownerId) {
+      return sendOwnerIdRequired(reply)
+    }
+
+    try {
+      const workspaceId = await ensureOpenClawWorkspace(ownerId)
+      const workspace = await prisma.userWorkspace.findUnique({
+        where: {
+          userId_provider: {
+            userId: ownerId,
+            provider: "openclaw",
+          },
+        },
+      })
+      return {
+        provider: "openclaw",
+        status: workspace?.status.toLowerCase() || "ready",
+        workspaceId: workspace?.workspaceId || workspaceId,
+        initializedAt: workspace?.initializedAt?.toISOString() || null,
+        lastUsedAt: workspace?.lastUsedAt?.toISOString() || null,
+        error: workspace?.error || null,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "OpenClaw workspace initialization failed."
+      return reply.code(502).send({
+        provider: "openclaw",
+        status: "failed",
+        workspaceId: null,
+        error: message,
+      })
+    }
+  })
+
   app.post("/tasks", async (request, reply) => {
+    const unauthorized = requireAgentApiAuthorization(request, reply)
+    if (unauthorized) {
+      return unauthorized
+    }
+
     const parsed = createTaskBodySchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({
@@ -114,10 +187,25 @@ export function buildServer() {
       return sendOwnerIdRequired(reply)
     }
 
-    const task = await createTask({
-      ...parsed.data,
-      externalUserId: ownerId,
-    })
+    let task
+    try {
+      task = await createTask({
+        ...parsed.data,
+        externalUserId: ownerId,
+      })
+    } catch (error) {
+      if (error instanceof PaymentRequiredError) {
+        return reply.code(402).send({
+          error: error.message,
+          code: "PAYMENT_REQUIRED",
+          requiredCredits: error.details.requiredCredits,
+          availableCredits: error.details.availableCredits,
+        })
+      }
+
+      throw error
+    }
+
     if (!task) {
       return reply.code(500).send({ error: "Task was created but could not be loaded." })
     }
@@ -128,6 +216,11 @@ export function buildServer() {
   app.get<{ Params: { taskId: string }; Querystring: { clientId?: string; ownerId?: string } }>(
     "/tasks/:taskId",
     async (request, reply) => {
+      const unauthorized = requireAgentApiAuthorization(request, reply)
+      if (unauthorized) {
+        return unauthorized
+      }
+
       const ownerId = ownerFromRequest(request)
       if (!ownerId) {
         return sendOwnerIdRequired(reply)
@@ -145,6 +238,11 @@ export function buildServer() {
   app.post<{ Params: { taskId: string }; Querystring: { clientId?: string; ownerId?: string } }>(
     "/tasks/:taskId/cancel",
     async (request, reply) => {
+      const unauthorized = requireAgentApiAuthorization(request, reply)
+      if (unauthorized) {
+        return unauthorized
+      }
+
       const ownerId = ownerFromRequest(request)
       if (!ownerId) {
         return sendOwnerIdRequired(reply)
@@ -162,6 +260,11 @@ export function buildServer() {
   app.get<{ Params: { taskId: string }; Querystring: { clientId?: string; ownerId?: string } }>(
     "/tasks/:taskId/events",
     async (request, reply) => {
+      const unauthorized = requireAgentApiAuthorization(request, reply)
+      if (unauthorized) {
+        return unauthorized
+      }
+
       const ownerId = ownerFromRequest(request)
       if (!ownerId) {
         return sendOwnerIdRequired(reply)

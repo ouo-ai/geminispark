@@ -1,11 +1,20 @@
-import { config, requireConfig } from "./config.js"
-import type { AgentIntent, ClientAttachment, ClientMessage, ProviderResult } from "./types.js"
+import { WorkspaceStatus } from "@prisma/client"
 
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "moonshotai/kimi-k2.6"
+import { config, requireConfig } from "./config.js"
+import { prisma } from "./db.js"
+import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult } from "./types.js"
+
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "anthropic/claude-opus-4.7"
 const APIMART_IMAGE_MODEL = process.env.APIMART_IMAGE_MODEL || "gpt-image-2"
 const EGG_TEXT_TO_VIDEO_MODEL = process.env.EGG_TEXT_TO_VIDEO_MODEL || "alibaba/wan-2.7/text-to-video"
 const EGG_IMAGE_TO_VIDEO_MODEL = process.env.EGG_IMAGE_TO_VIDEO_MODEL || "alibaba/wan-2.7/image-to-video"
 const PUBLIC_AGENT_NAME = "Gemini Spark"
+
+type ProviderContext = {
+  taskId?: string
+  userId?: string
+  onEvent?: (event: ProviderEvent) => Promise<void> | void
+}
 
 function compactHistory(history: ClientMessage[] = []) {
   return history.slice(-8).map((message) => ({
@@ -112,6 +121,141 @@ function mediaKindFromUrls(urls: string[], fallback: "image" | "video") {
 
 function attachmentUrl(attachment: ClientAttachment) {
   return attachment.url || attachment.dataUrl || ""
+}
+
+async function parseOpenClawResponse(response: Response) {
+  const body = await parseProviderResponse(response)
+  if (!body || typeof body !== "object") {
+    return {}
+  }
+
+  return body as Record<string, unknown>
+}
+
+function openClawHeaders() {
+  return {
+    Authorization: `Bearer ${requireConfig(config.openClawGatewayToken, "OpenClaw Gateway is missing OPENCLAW_GATEWAY_TOKEN.")}`,
+    "Content-Type": "application/json",
+  }
+}
+
+function requireOpenClawGatewayUrl() {
+  return requireConfig(config.openClawGatewayUrl, "OpenClaw Gateway is missing OPENCLAW_GATEWAY_URL.")
+}
+
+function openClawStatus(value: unknown) {
+  return typeof value === "string" ? value.toLowerCase() : ""
+}
+
+function openClawArtifacts(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((item): item is { url?: string; type?: string; text?: string } => Boolean(item && typeof item === "object"))
+}
+
+function openClawEvents(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .map((item) => ({
+      id: typeof item.id === "string" ? item.id : undefined,
+      type: typeof item.type === "string" && item.type ? item.type : "openclaw",
+      message: typeof item.message === "string" && item.message ? item.message : "OpenClaw updated.",
+      data: item.data,
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : undefined,
+    }))
+}
+
+function eventKey(event: ProviderEvent, index: number) {
+  return event.id || `${event.createdAt || ""}:${event.type}:${event.message}:${index}`
+}
+
+async function emitOpenClawEvents(
+  events: ProviderEvent[],
+  emitted: Set<string>,
+  onEvent: ProviderContext["onEvent"],
+) {
+  if (!onEvent) {
+    return
+  }
+
+  for (const [index, event] of events.entries()) {
+    const key = eventKey(event, index)
+    if (emitted.has(key)) {
+      continue
+    }
+
+    emitted.add(key)
+    await onEvent(event)
+  }
+}
+
+function mediaFallbackForIntent(intent: AgentIntent): "image" | "video" {
+  return intent === "text-to-video" || intent === "image-to-video" ? "video" : "image"
+}
+
+export async function ensureOpenClawWorkspace(userId: string) {
+  const existing = await prisma.userWorkspace.findUnique({
+    where: {
+      userId_provider: {
+        userId,
+        provider: "openclaw",
+      },
+    },
+  })
+
+  if (existing?.status === WorkspaceStatus.READY && existing.workspaceId) {
+    await prisma.userWorkspace.update({
+      where: { id: existing.id },
+      data: { lastUsedAt: new Date(), error: null },
+    })
+    return existing.workspaceId
+  }
+
+  const gatewayUrl = requireOpenClawGatewayUrl()
+  const response = await fetch(`${gatewayUrl}/workspaces`, {
+    method: "POST",
+    headers: openClawHeaders(),
+    body: JSON.stringify({ userId }),
+  })
+  const body = await parseOpenClawResponse(response)
+  const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : typeof body.id === "string" ? body.id : ""
+
+  if (!workspaceId) {
+    throw new Error("OpenClaw Gateway did not return a workspace id.")
+  }
+
+  await prisma.userWorkspace.upsert({
+    where: {
+      userId_provider: {
+        userId,
+        provider: "openclaw",
+      },
+    },
+    create: {
+      userId,
+      provider: "openclaw",
+      workspaceId,
+      status: WorkspaceStatus.READY,
+      initializedAt: new Date(),
+      lastUsedAt: new Date(),
+      error: null,
+    },
+    update: {
+      workspaceId,
+      status: WorkspaceStatus.READY,
+      initializedAt: existing?.initializedAt || new Date(),
+      lastUsedAt: new Date(),
+      error: null,
+    },
+  })
+
+  return workspaceId
 }
 
 async function pollApimartTask(taskId: string, apiKey: string) {
@@ -228,10 +372,106 @@ export async function callOpenRouter(
   return {
     intent: "text",
     provider: PUBLIC_AGENT_NAME,
-    model: PUBLIC_AGENT_NAME,
+    model: typeof body.model === "string" ? body.model : OPENROUTER_MODEL,
     message: body.choices?.[0]?.message?.content || `${PUBLIC_AGENT_NAME} returned an empty response.`,
     usage: body.usage,
   }
+}
+
+export async function callOpenClawRun(
+  intent: AgentIntent,
+  message: string,
+  history: ClientMessage[] = [],
+  attachments: ClientAttachment[] = [],
+  context: ProviderContext = {},
+): Promise<ProviderResult> {
+  if (!context.userId || !context.taskId) {
+    if (intent === "image") {
+      return callApimartImage(message, attachments)
+    }
+
+    if (intent === "text-to-video" || intent === "image-to-video") {
+      return callEggVideo(intent, message, attachments)
+    }
+
+    return callOpenRouter(message, history, attachments)
+  }
+
+  const gatewayUrl = requireOpenClawGatewayUrl()
+  const workspaceId = await ensureOpenClawWorkspace(context.userId)
+  const response = await fetch(`${gatewayUrl}/runs`, {
+    method: "POST",
+    headers: openClawHeaders(),
+    body: JSON.stringify({
+      taskId: context.taskId,
+      userId: context.userId,
+      workspaceId,
+      intent,
+      message,
+      history,
+      attachments,
+      model: config.openClawDefaultModel,
+    }),
+  })
+  const submitted = await parseOpenClawResponse(response)
+  const emittedEvents = new Set<string>()
+  await emitOpenClawEvents(openClawEvents(submitted.events), emittedEvents, context.onEvent)
+  const runId = typeof submitted.runId === "string" ? submitted.runId : typeof submitted.id === "string" ? submitted.id : ""
+
+  if (!runId) {
+    throw new Error("OpenClaw Gateway did not return a run id.")
+  }
+
+  const started = Date.now()
+  let latest: Record<string, unknown> = submitted
+
+  while (Date.now() - started < config.openClawPollTimeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, config.openClawPollIntervalMs))
+
+    const poll = await fetch(`${gatewayUrl}/runs/${encodeURIComponent(runId)}`, {
+      headers: openClawHeaders(),
+    })
+    latest = await parseOpenClawResponse(poll)
+    await emitOpenClawEvents(openClawEvents(latest.events), emittedEvents, context.onEvent)
+    const status = openClawStatus(latest.status)
+
+    if (status === "succeeded" || status === "done" || status === "complete" || status === "completed") {
+      const artifacts = openClawArtifacts(latest.artifacts)
+      const mediaUrls = artifacts
+        .map((artifact) => artifact.url)
+        .filter((url): url is string => typeof url === "string" && /^https?:\/\//.test(url))
+      const finalIntent =
+        latest.intent === "image" ||
+        latest.intent === "text-to-video" ||
+        latest.intent === "image-to-video" ||
+        latest.intent === "text"
+          ? latest.intent
+          : intent
+
+      return {
+        intent: finalIntent,
+        provider: "OpenClaw",
+        model: typeof latest.model === "string" ? latest.model : config.openClawDefaultModel,
+        workspaceId,
+        taskId: runId,
+        message:
+          (typeof latest.message === "string" && latest.message) ||
+          artifacts.find((artifact) => typeof artifact.text === "string")?.text ||
+          "OpenClaw completed the task.",
+        media:
+          mediaUrls.length > 0
+            ? { type: mediaKindFromUrls(mediaUrls, mediaFallbackForIntent(finalIntent)), urls: mediaUrls }
+            : undefined,
+        raw: latest,
+      }
+    }
+
+    if (status === "failed" || status === "error" || status === "canceled" || status === "cancelled") {
+      throw new Error((typeof latest.error === "string" && latest.error) || "OpenClaw task failed.")
+    }
+  }
+
+  throw new Error("OpenClaw task timed out.")
 }
 
 export async function callApimartImage(message: string, attachments: ClientAttachment[] = []): Promise<ProviderResult> {
@@ -337,14 +577,7 @@ export async function runProviderForIntent(
   message: string,
   history: ClientMessage[] = [],
   attachments: ClientAttachment[] = [],
+  context: ProviderContext = {},
 ) {
-  if (intent === "image") {
-    return callApimartImage(message, attachments)
-  }
-
-  if (intent === "text-to-video" || intent === "image-to-video") {
-    return callEggVideo(intent, message, attachments)
-  }
-
-  return callOpenRouter(message, history, attachments)
+  return callOpenClawRun(intent, message, history, attachments, context)
 }

@@ -30,6 +30,40 @@ enum ArtifactKind {
   OTHER
 }
 
+enum BillingPlan {
+  FREE
+  STARTUP
+  PRO
+}
+
+enum SubscriptionStatus {
+  NONE
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+enum CreditBucket {
+  FREE
+  PERIOD
+}
+
+enum CreditTransactionType {
+  GRANT
+  DEBIT
+  REFUND
+}
+
+enum WorkspaceStatus {
+  PENDING
+  READY
+  FAILED
+}
+
 model Task {
   id             String       @id @default(cuid())
   clientTaskId   String?
@@ -41,6 +75,9 @@ model Task {
   progress       Int          @default(0)
   provider       String?
   model          String?
+  creditCost     Int          @default(0)
+  creditBucket   CreditBucket?
+  workspaceId    String?
   input          Json
   result         Json?
   error          String?
@@ -55,6 +92,7 @@ model Task {
   @@index([externalUserId, createdAt])
   @@index([sessionId, createdAt])
   @@index([clientTaskId])
+  @@index([workspaceId])
 }
 
 model TaskEvent {
@@ -80,4 +118,125 @@ model Artifact {
   task      Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId, createdAt])
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  credit        UserCredit?
+  creditTransactions CreditTransaction[]
+  workspaces    UserWorkspace[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model UserCredit {
+  userId                 String             @id
+  freeCreditsRemaining   Int                @default(2)
+  periodCreditsRemaining Int                @default(0)
+  plan                   BillingPlan        @default(FREE)
+  subscriptionStatus     SubscriptionStatus @default(NONE)
+  stripeCustomerId       String?            @unique
+  stripeSubscriptionId   String?            @unique
+  creditsPeriodStart     DateTime?
+  creditsPeriodEnd       DateTime?
+  nextCreditGrantAt      DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id                 String                @id @default(cuid())
+  userId             String
+  taskId             String?
+  type               CreditTransactionType
+  bucket             CreditBucket?
+  amount             Int
+  balanceAfterFree   Int
+  balanceAfterPeriod Int
+  description        String?
+  stripeEventId      String?
+  idempotencyKey     String?               @unique
+  metadata           Json?
+  createdAt          DateTime              @default(now())
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([taskId])
+  @@index([stripeEventId])
+}
+
+model UserWorkspace {
+  id            String          @id @default(cuid())
+  userId        String
+  provider      String          @default("openclaw")
+  workspaceId   String
+  status        WorkspaceStatus @default(PENDING)
+  initializedAt DateTime?
+  lastUsedAt    DateTime?
+  error         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@unique([provider, workspaceId])
+  @@index([status, updatedAt])
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
 }

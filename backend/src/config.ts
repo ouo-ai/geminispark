@@ -39,6 +39,12 @@ export const config = {
   apimartApiKey: process.env.APIMART_API_KEY || "",
   eggApiApiKey: process.env.EGGAPI_API_KEY || "",
   mcpAuthToken: process.env.MCP_AUTH_TOKEN || "",
+  agentApiToken: process.env.AGENT_API_TOKEN || "",
+  openClawGatewayUrl: (process.env.OPENCLAW_GATEWAY_URL || "").replace(/\/$/, ""),
+  openClawGatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || "",
+  openClawDefaultModel: process.env.OPENCLAW_DEFAULT_MODEL || "anthropic/claude-opus-4.7",
+  openClawPollTimeoutMs: numberEnv("OPENCLAW_POLL_TIMEOUT_MS", 600_000),
+  openClawPollIntervalMs: numberEnv("OPENCLAW_POLL_INTERVAL_MS", 2_000),
 }
 
 export function requireConfig(value: string, message: string) {

@@ -1,0 +1,30 @@
+import { getAgentApiAuthHeaders, getSessionOwnerId, jsonError, proxyJsonResponse, requireAgentApiUrl } from "../../proxy"
+
+type RouteContext = {
+  params: Promise<{
+    taskId: string
+  }>
+}
+
+export async function POST(request: Request, context: RouteContext) {
+  try {
+    const ownerId = await getSessionOwnerId(request)
+    if (!ownerId) {
+      return jsonError("Sign in to chat with Gemini Spark.", 401)
+    }
+
+    const { taskId } = await context.params
+    const agentApiUrl = requireAgentApiUrl()
+    const response = await fetch(`${agentApiUrl}/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        ...getAgentApiAuthHeaders(ownerId),
+      },
+    })
+
+    return proxyJsonResponse(response)
+  } catch {
+    return jsonError("Task cancel request failed. Please try again.", 502)
+  }
+}

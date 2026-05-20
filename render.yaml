@@ -42,6 +42,14 @@ services:
         sync: false
       - key: MCP_AUTH_TOKEN
         sync: false
+      - key: AGENT_API_TOKEN
+        sync: false
+      - key: OPENCLAW_GATEWAY_URL
+        sync: false
+      - key: OPENCLAW_GATEWAY_TOKEN
+        sync: false
+      - key: OPENCLAW_DEFAULT_MODEL
+        value: anthropic/claude-opus-4.7
 
   - type: worker
     name: geminispark-worker
@@ -75,3 +83,11 @@ services:
         sync: false
       - key: EGGAPI_API_KEY
         sync: false
+      - key: AGENT_API_TOKEN
+        sync: false
+      - key: OPENCLAW_GATEWAY_URL
+        sync: false
+      - key: OPENCLAW_GATEWAY_TOKEN
+        sync: false
+      - key: OPENCLAW_DEFAULT_MODEL
+        value: anthropic/claude-opus-4.7

@@ -32,9 +32,18 @@ export type ProviderResult = {
   model: string
   message: string
   taskId?: string
+  workspaceId?: string
   media?: AgentMedia
   usage?: unknown
   raw?: unknown
+}
+
+export type ProviderEvent = {
+  id?: string
+  type: string
+  message: string
+  data?: unknown
+  createdAt?: string
 }
 
 export type QueuedTaskJob = {
