@@ -78,6 +78,9 @@ model Task {
   creditCost     Int          @default(0)
   creditBucket   CreditBucket?
   workspaceId    String?
+  runtimeRunId   String?
+  runtimeSessionId String?
+  lastRuntimeEventAt DateTime?
   input          Json
   result         Json?
   error          String?
@@ -93,6 +96,8 @@ model Task {
   @@index([sessionId, createdAt])
   @@index([clientTaskId])
   @@index([workspaceId])
+  @@index([runtimeRunId])
+  @@index([status, lastRuntimeEventAt])
 }
 
 model TaskEvent {
@@ -180,9 +185,12 @@ model UserWorkspace {
   userId        String
   provider      String          @default("openclaw")
   workspaceId   String
+  runtimeSessionId String?
+  runtimeAgentId String?
   status        WorkspaceStatus @default(PENDING)
   initializedAt DateTime?
   lastUsedAt    DateTime?
+  lastSyncedAt  DateTime?
   error         String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt

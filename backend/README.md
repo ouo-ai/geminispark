@@ -13,19 +13,16 @@ This backend runs the long-lived Gemini Spark task layer outside Vercel.
 - `DATABASE_URL`: Supabase shared pooler URL for runtime.
 - `DIRECT_URL`: Supabase direct/shared pooler URL for Prisma migrations.
 - `REDIS_URL`: Render Key Value internal connection string.
-- `OPENROUTER_API_KEY`: text provider key.
-- `APIMART_API_KEY`: image provider key.
-- `EGGAPI_API_KEY`: video provider key.
 - `MCP_AUTH_TOKEN`: bearer token required by `/mcp`.
 - `AGENT_API_TOKEN`: bearer token required by task API routes.
-- `OPENCLAW_GATEWAY_URL`: VPS OpenClaw-compatible gateway base URL.
-- `OPENCLAW_GATEWAY_TOKEN`: bearer token for the VPS gateway.
-- `OPENCLAW_DEFAULT_MODEL`: private gateway model id; required in deployed environments and not returned to clients.
+- `OPENCLAW_GATEWAY_URL`: VPS Gemini Spark adapter base URL.
+- `OPENCLAW_GATEWAY_TOKEN`: bearer token for the VPS adapter.
+- `OPENCLAW_SYNC_INTERVAL_MS`: worker polling interval for running OpenClaw tasks.
+- `OPENCLAW_SYNC_BATCH_SIZE`: maximum running tasks to sync per worker tick.
 - `ALLOWED_ORIGINS`: comma-separated browser origins allowed to call the API.
 
-The VPS gateway also needs `OPENROUTER_API_KEY`, `APIMART_API_KEY`, and
-`EGGAPI_API_KEY` because chat tasks route all text, image, and video work
-through OpenClaw runs.
+Provider keys and model configuration live in the official OpenClaw Gateway
+configuration on the VPS. Render should not call providers directly.
 
 ## API
 

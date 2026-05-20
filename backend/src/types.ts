@@ -32,9 +32,28 @@ export type ProviderResult = {
   model: string
   message: string
   taskId?: string
+  runtimeRunId?: string
+  runtimeSessionId?: string
   workspaceId?: string
   media?: AgentMedia
   usage?: unknown
+  raw?: unknown
+}
+
+export type RuntimeRunSnapshot = {
+  intent: AgentIntent
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled"
+  provider: string
+  model: string
+  message: string
+  taskId?: string
+  runtimeRunId?: string
+  runtimeSessionId?: string
+  workspaceId?: string
+  media?: AgentMedia
+  artifacts?: Array<{ type?: string; text?: string; url?: string }>
+  events: ProviderEvent[]
+  error?: string
   raw?: unknown
 }
 

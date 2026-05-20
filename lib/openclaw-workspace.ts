@@ -10,7 +10,14 @@ function gatewayUrl() {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message.replace(/\bOpenClaw\b/g, "Gemini Spark") : "Gemini Spark workspace initialization failed."
+  return error instanceof Error
+    ? error.message
+        .replace(/\bOpenClaw\b/g, "Gemini Spark")
+        .replace(/anthropic\/claude[\w./-]*/gi, "Gemini Spark")
+        .replace(/\bclaude[\w./-]*4\.7[\w./-]*\b/gi, "Gemini Spark")
+        .replace(/\bclaude[\w./-]*opus[\w./-]*\b/gi, "Gemini Spark")
+        .replace(/\bClaude\s+(?:Opus\s+)?4\.7(?:\s+Opus)?\b/gi, "Gemini Spark")
+    : "Gemini Spark workspace initialization failed."
 }
 
 async function parseGatewayResponse(response: Response) {
@@ -39,8 +46,11 @@ function failedWorkspace(existing: WorkspaceRecord | null, error: unknown) {
     provider: "openclaw",
     status: "failed",
     workspaceId: existing?.workspaceId || null,
+    runtimeSessionId: existing?.runtimeSessionId || null,
+    runtimeAgentId: existing?.runtimeAgentId || null,
     initializedAt: existing?.initializedAt?.toISOString() || null,
     lastUsedAt: existing?.lastUsedAt?.toISOString() || null,
+    lastSyncedAt: existing?.lastSyncedAt?.toISOString() || null,
     error: errorMessage(error),
   }
 }
@@ -55,7 +65,7 @@ export async function ensureOpenClawWorkspaceDirect(userId: string) {
     },
   })
 
-  if (existing?.status === WorkspaceStatus.READY && existing.workspaceId) {
+  if (existing?.status === WorkspaceStatus.READY && existing.workspaceId && existing.runtimeSessionId) {
     await prisma.userWorkspace.update({
       where: { id: existing.id },
       data: { lastUsedAt: new Date(), error: null },
@@ -81,6 +91,8 @@ export async function ensureOpenClawWorkspaceDirect(userId: string) {
     })
     const body = await parseGatewayResponse(response)
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : typeof body.id === "string" ? body.id : ""
+    const runtimeSessionId = typeof body.runtimeSessionId === "string" ? body.runtimeSessionId : typeof body.sessionId === "string" ? body.sessionId : undefined
+    const runtimeAgentId = typeof body.runtimeAgentId === "string" ? body.runtimeAgentId : typeof body.agentId === "string" ? body.agentId : undefined
 
     if (!workspaceId) {
       throw new Error("Gemini Spark Gateway did not return a workspace id.")
@@ -97,16 +109,22 @@ export async function ensureOpenClawWorkspaceDirect(userId: string) {
         userId,
         provider: "openclaw",
         workspaceId,
+        runtimeSessionId,
+        runtimeAgentId,
         status: WorkspaceStatus.READY,
         initializedAt: new Date(),
         lastUsedAt: new Date(),
+        lastSyncedAt: new Date(),
         error: null,
       },
       update: {
         workspaceId,
+        runtimeSessionId,
+        runtimeAgentId,
         status: WorkspaceStatus.READY,
         initializedAt: existing?.initializedAt || new Date(),
         lastUsedAt: new Date(),
+        lastSyncedAt: new Date(),
         error: null,
       },
     })

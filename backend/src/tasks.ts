@@ -4,8 +4,8 @@ import { creditCostForIntent, debitTaskCreditsTx, refundTaskCredits } from "./bi
 import { prisma } from "./db.js"
 import { fromDbIntent, selectIntent, toDbIntent } from "./intent.js"
 import { getTaskQueue } from "./queue.js"
-import { runProviderForIntent } from "./providers.js"
-import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult, TaskInput } from "./types.js"
+import { fetchOpenClawRunSnapshot, runProviderForIntent } from "./providers.js"
+import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, ProviderResult, RuntimeRunSnapshot, TaskInput } from "./types.js"
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELED])
 const PUBLIC_AGENT_NAME = "Gemini Spark"
@@ -104,6 +104,9 @@ export function serializeTask(
     model: task.model ? PUBLIC_AGENT_NAME : null,
     creditCost: task.creditCost,
     workspaceId: task.workspaceId,
+    runtimeRunId: task.runtimeRunId,
+    runtimeSessionId: task.runtimeSessionId,
+    lastRuntimeEventAt: task.lastRuntimeEventAt?.toISOString() || null,
     message,
     error: task.error ? publicAgentText(task.error) : task.error,
     media: inferMediaFromArtifacts(task.artifacts),
@@ -182,6 +185,21 @@ function progressFromProviderEvent(event: ProviderEvent) {
 }
 
 async function appendProviderEvent(taskId: string, event: ProviderEvent) {
+  if (event.id) {
+    const existing = await prisma.taskEvent.findMany({
+      where: { taskId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    })
+    const alreadyRecorded = existing.some((row) => {
+      const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {}
+      return data.providerEventId === event.id
+    })
+    if (alreadyRecorded) {
+      return
+    }
+  }
+
   const progress = progressFromProviderEvent(event)
   await appendTaskEvent(taskId, event.type, event.message, {
     source: "openclaw",
@@ -347,6 +365,9 @@ async function storeProviderResult(taskId: string, result: ProviderResult) {
         provider: result.provider,
         model: result.model,
         workspaceId: result.workspaceId,
+        runtimeRunId: result.runtimeRunId || result.taskId,
+        runtimeSessionId: result.runtimeSessionId,
+        lastRuntimeEventAt: new Date(),
         result: toJson(result),
         error: null,
         finishedAt: new Date(),
@@ -361,6 +382,50 @@ async function storeProviderResult(taskId: string, result: ProviderResult) {
       },
     }),
   ])
+}
+
+async function storeOpenClawAcceptedResult(taskId: string, result: ProviderResult) {
+  await prisma.task.update({
+    where: { id: taskId },
+    data: {
+      status: TaskStatus.RUNNING,
+      progress: 20,
+      provider: result.provider,
+      model: result.model,
+      workspaceId: result.workspaceId,
+      runtimeRunId: result.runtimeRunId || result.taskId,
+      runtimeSessionId: result.runtimeSessionId,
+      lastRuntimeEventAt: new Date(),
+      result: toJson(result),
+      error: null,
+    },
+  })
+  await appendTaskEvent(taskId, "accepted", result.message, {
+    runtimeRunId: result.runtimeRunId || result.taskId,
+    runtimeSessionId: result.runtimeSessionId,
+    workspaceId: result.workspaceId,
+  })
+}
+
+async function storeOpenClawTerminalError(taskId: string, snapshot: RuntimeRunSnapshot) {
+  const status = snapshot.status === "canceled" ? TaskStatus.CANCELED : TaskStatus.FAILED
+  await prisma.task.update({
+    where: { id: taskId },
+    data: {
+      status,
+      progress: 100,
+      provider: snapshot.provider,
+      model: snapshot.model,
+      workspaceId: snapshot.workspaceId,
+      runtimeRunId: snapshot.runtimeRunId || snapshot.taskId,
+      runtimeSessionId: snapshot.runtimeSessionId,
+      lastRuntimeEventAt: new Date(),
+      result: toJson(snapshot),
+      error: snapshot.error || snapshot.message,
+      finishedAt: new Date(),
+    },
+  })
+  await appendTaskEvent(taskId, status === TaskStatus.CANCELED ? "canceled" : "failed", snapshot.error || snapshot.message)
 }
 
 export async function processTask(taskId: string) {
@@ -393,7 +458,7 @@ export async function processTask(taskId: string) {
       userId: task.externalUserId || undefined,
       onEvent: (event) => appendProviderEvent(taskId, event),
     })
-    await storeProviderResult(taskId, result)
+    await storeOpenClawAcceptedResult(taskId, result)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Task failed."
     if (
@@ -415,6 +480,79 @@ export async function processTask(taskId: string) {
     await appendTaskEvent(taskId, "failed", message)
     throw error
   }
+}
+
+export async function syncOpenClawTask(taskId: string) {
+  const task = await prisma.task.findUnique({ where: { id: taskId } })
+  if (!task || task.status !== TaskStatus.RUNNING || !task.runtimeRunId) {
+    return
+  }
+
+  const intent = fromDbIntent(task.intent)
+  const snapshot = await fetchOpenClawRunSnapshot(task.runtimeRunId, intent)
+  for (const event of snapshot.events) {
+    await appendProviderEvent(taskId, event)
+  }
+
+  await prisma.task.update({
+    where: { id: taskId },
+    data: {
+      progress: snapshot.status === "running" || snapshot.status === "queued" ? Math.max(task.progress, 20) : 100,
+      workspaceId: snapshot.workspaceId || task.workspaceId,
+      runtimeRunId: snapshot.runtimeRunId || task.runtimeRunId,
+      runtimeSessionId: snapshot.runtimeSessionId || task.runtimeSessionId,
+      lastRuntimeEventAt: new Date(),
+      result: toJson(snapshot),
+    },
+  })
+
+  if (snapshot.workspaceId) {
+    await prisma.userWorkspace
+      .updateMany({
+        where: {
+          provider: "openclaw",
+          workspaceId: snapshot.workspaceId,
+        },
+        data: {
+          runtimeSessionId: snapshot.runtimeSessionId,
+          lastSyncedAt: new Date(),
+          error: null,
+        },
+      })
+      .catch(() => undefined)
+  }
+
+  if (snapshot.status === "succeeded") {
+    await storeProviderResult(taskId, snapshot)
+  } else if (snapshot.status === "failed" || snapshot.status === "canceled") {
+    await storeOpenClawTerminalError(taskId, snapshot)
+  }
+}
+
+export async function syncRunningOpenClawTasks(limit = 25) {
+  const tasks = await prisma.task.findMany({
+    where: {
+      status: TaskStatus.RUNNING,
+      runtimeRunId: {
+        not: null,
+      },
+    },
+    orderBy: [
+      {
+        lastRuntimeEventAt: "asc",
+      },
+      {
+        updatedAt: "asc",
+      },
+    ],
+    take: limit,
+  })
+
+  for (const task of tasks) {
+    await syncOpenClawTask(task.id)
+  }
+
+  return tasks.length
 }
 
 function toDbStatus(status: string) {

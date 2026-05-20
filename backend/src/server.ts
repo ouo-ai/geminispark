@@ -153,8 +153,11 @@ export function buildServer() {
         provider: "openclaw",
         status: workspace?.status.toLowerCase() || "ready",
         workspaceId: workspace?.workspaceId || workspaceId,
+        runtimeSessionId: workspace?.runtimeSessionId || null,
+        runtimeAgentId: workspace?.runtimeAgentId || null,
         initializedAt: workspace?.initializedAt?.toISOString() || null,
         lastUsedAt: workspace?.lastUsedAt?.toISOString() || null,
+        lastSyncedAt: workspace?.lastSyncedAt?.toISOString() || null,
         error: workspace?.error || null,
       }
     } catch (error) {

@@ -4,7 +4,6 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod/v4"
 
 import { config } from "./config.js"
-import { callApimartImage, callEggVideo, callOpenRouter } from "./providers.js"
 import { getTask, serializeTask, updateTaskFromMcp } from "./tasks.js"
 
 function jsonText(value: unknown) {
@@ -64,66 +63,6 @@ function createMcpServer() {
 
       return jsonText(serializeTask(task))
     },
-  )
-
-  server.registerTool(
-    "geminispark_generate_text",
-    {
-      description: "Generate a Gemini Spark text response.",
-      inputSchema: {
-        prompt: z.string().min(1),
-      },
-    },
-    async ({ prompt }) => jsonText(await callOpenRouter(prompt)),
-  )
-
-  server.registerTool(
-    "geminispark_generate_image",
-    {
-      description: "Generate a Gemini Spark image.",
-      inputSchema: {
-        prompt: z.string().min(1),
-        imageUrls: z.array(z.string()).optional(),
-      },
-    },
-    async ({ prompt, imageUrls }) =>
-      jsonText(
-        await callApimartImage(
-          prompt,
-          (imageUrls || []).map((url) => ({
-            name: "mcp-image",
-            type: "image/*",
-            url,
-          })),
-        ),
-      ),
-  )
-
-  server.registerTool(
-    "geminispark_generate_video",
-    {
-      description: "Generate a Gemini Spark video.",
-      inputSchema: {
-        prompt: z.string().min(1),
-        imageUrl: z.string().optional(),
-      },
-    },
-    async ({ prompt, imageUrl }) =>
-      jsonText(
-        await callEggVideo(
-          imageUrl ? "image-to-video" : "text-to-video",
-          prompt,
-          imageUrl
-            ? [
-                {
-                  name: "mcp-image",
-                  type: "image/*",
-                  url: imageUrl,
-                },
-              ]
-            : [],
-        ),
-      ),
   )
 
   return server
