@@ -163,15 +163,16 @@ export default function RootLayout({
   }
 
   return (
-    <html lang="en" className={`dark bg-background ${inter.variable} ${_jetbrainsMono.variable}`}>
+    <html lang="en" translate="no" className={`notranslate dark bg-background ${inter.variable} ${_jetbrainsMono.variable}`}>
       <head>
+        <meta name="google" content="notranslate" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
         <script defer data-domain="geminispark.ai" src="https://plau.origai.net/js/script.js" />
       </head>
-      <body className="font-sans antialiased min-h-screen">
+      <body className="notranslate font-sans antialiased min-h-screen" translate="no">
         {children}
         <PostHogPageTracker />
         <Analytics />

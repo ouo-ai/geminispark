@@ -80,6 +80,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   BILLING_PLANS,
   CREDIT_COSTS,
+  isActiveSubscriptionStatus,
   type BillingInterval,
   type PaidPlan,
 } from "@/lib/billing-config"
@@ -1547,7 +1548,8 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const isChatNavigationLoading =
     isChatNavigationPending && !bootstrapError
   const isChatInputDisabled = isThinking || !isSignedIn || !isWorkspaceReady || isChatNavigationPending
-  const isFreeUser = account?.credits.plan.toLowerCase() === "free"
+  const isPaidSubscription = isActiveSubscriptionStatus(account?.credits.subscriptionStatus)
+  const isFreeUser = account?.credits.plan.toLowerCase() === "free" && !isPaidSubscription
   const totalCredits = account?.credits.totalCredits ?? 0
   const shouldShowPaymentPrompt =
     isSignedIn && Boolean(account) && isFreeUser && !isChatNavigationPending && !paymentPromptDismissed

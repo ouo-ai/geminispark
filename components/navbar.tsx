@@ -10,11 +10,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   Menu,
   X,
-  ArrowRight,
   ChevronDown,
   Sparkles,
   FileText,
@@ -28,13 +28,15 @@ import {
   Bot,
   ClipboardList,
   Video,
+  Loader2,
+  LogOut,
+  User,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import { authClient } from "@/lib/auth-client"
 import { captureEvent } from "@/lib/posthog-client"
 
 const navLinks = [
-  { href: "/#features", label: "Features" },
-  { href: "/#use-cases", label: "Use Cases" },
   { href: "/pricing", label: "Pricing" },
   { href: "/#faq", label: "FAQ" },
 ]
@@ -85,6 +87,11 @@ const toolsMenu = {
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [isSigningIn, setIsSigningIn] = useState(false)
+  const { data: session, isPending: isSessionPending } = authClient.useSession()
+
+  const isAuthPending = isSessionPending || isSigningIn
+  const userLabel = session?.user.email || session?.user.name || "Account"
 
   function trackNavClick(label: string, href: string, location: string) {
     captureEvent("nav_link_clicked", {
@@ -96,6 +103,42 @@ export function Navbar() {
 
   function closeMobileMenuAfterClick(label: string, href: string, location: string) {
     trackNavClick(label, href, location)
+    setMobileMenuOpen(false)
+  }
+
+  async function signInWithGoogle(source: string) {
+    if (isSigningIn) {
+      return
+    }
+
+    setIsSigningIn(true)
+    try {
+      captureEvent("sign_in_started", {
+        provider: "google",
+        source,
+      })
+      const callbackURL =
+        typeof window === "undefined"
+          ? "/"
+          : `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL,
+      })
+    } catch (error) {
+      captureEvent("sign_in_failed", {
+        provider: "google",
+        source,
+        message: error instanceof Error ? error.message : "Unknown error",
+      })
+      setIsSigningIn(false)
+    }
+  }
+
+  function signOut(source: string) {
+    captureEvent("user_signed_out", { source })
+    void authClient.signOut()
     setMobileMenuOpen(false)
   }
 
@@ -241,18 +284,62 @@ export function Navbar() {
           </div>
 
           {/* Desktop Buttons - hidden below lg */}
-          <div className="hidden lg:flex items-center gap-3">
-            <Button variant="ghost" size="sm" rounded="full" asChild>
-              <Link href="/#how-it-works" onClick={() => trackNavClick("How it works", "/#how-it-works", "desktop_action")}>
-                How it works
-              </Link>
-            </Button>
-            <Button size="sm" rounded="full" className="gap-1.5" asChild>
-              <Link href="/gemini-spark" onClick={() => trackNavClick("Open Chat", "/gemini-spark", "desktop_action")}>
-                Open Chat
-                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-              </Link>
-            </Button>
+          <div className="hidden lg:flex items-center gap-2">
+            {session?.user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    rounded="full"
+                    className="max-w-[172px] bg-transparent px-2.5"
+                    type="button"
+                  >
+                    <User className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span className="truncate">{userLabel}</span>
+                    <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60 bg-card/95 backdrop-blur-xl border-border">
+                  <DropdownMenuLabel className="min-w-0">
+                    <span className="block text-xs font-medium text-muted-foreground">Signed in as</span>
+                    <span className="block truncate text-sm text-foreground">{userLabel}</span>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link
+                      href="/gemini-spark"
+                      className="cursor-pointer"
+                      onClick={() => trackNavClick("Open Chat", "/gemini-spark", "desktop_account_menu")}
+                    >
+                      <Sparkles className="h-4 w-4" aria-hidden="true" />
+                      Open Chat
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="cursor-pointer" onClick={() => signOut("desktop_nav")}>
+                    <LogOut className="h-4 w-4" aria-hidden="true" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                rounded="full"
+                className="gap-1.5 bg-transparent"
+                type="button"
+                onClick={() => void signInWithGoogle("desktop_nav")}
+                disabled={isAuthPending}
+              >
+                {isSigningIn ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <User className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {isSigningIn ? "Signing in" : "Sign in"}
+              </Button>
+            )}
           </div>
 
           {/* Mobile Menu Button - visible below lg */}
@@ -397,19 +484,45 @@ export function Navbar() {
               </div>
 
               <div className="px-6 py-4 border-t border-border/50 bg-background flex flex-col gap-3">
-                <Button variant="ghost" rounded="lg" className="justify-center text-base py-6 w-full" asChild>
-                  <Link
-                    href="/#how-it-works"
-                    onClick={() => closeMobileMenuAfterClick("How it works", "/#how-it-works", "mobile_action")}
+                {session?.user ? (
+                  <div className="rounded-lg border border-border bg-card/55 p-3">
+                    <div className="mb-3 flex min-w-0 items-center gap-2">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                        <User className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-foreground">Signed in</span>
+                        <span className="block truncate text-xs text-muted-foreground">{userLabel}</span>
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      rounded="lg"
+                      className="w-full justify-center gap-2 bg-transparent"
+                      onClick={() => signOut("mobile_nav")}
+                    >
+                      <LogOut className="h-4 w-4" aria-hidden="true" />
+                      Sign out
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    rounded="lg"
+                    className="w-full justify-center gap-2 bg-transparent py-6 text-base"
+                    onClick={() => void signInWithGoogle("mobile_nav")}
+                    disabled={isAuthPending}
                   >
-                    How it works
-                  </Link>
-                </Button>
-                <Button rounded="full" className="py-6 text-base w-full" asChild>
-                  <Link href="/gemini-spark" onClick={() => closeMobileMenuAfterClick("Open Chat", "/gemini-spark", "mobile_action")}>
-                    Open Chat
-                  </Link>
-                </Button>
+                    {isSigningIn ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <User className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {isSigningIn ? "Signing in" : "Sign in"}
+                  </Button>
+                )}
               </div>
             </motion.div>
           )}
