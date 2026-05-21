@@ -16,7 +16,7 @@ import { registerMcpRoutes } from "./mcp.js"
 import { ensureOpenClawWorkspace } from "./providers.js"
 import { TaskScopeError } from "./projects.js"
 import { closeTaskQueue } from "./queue.js"
-import { cancelTask, createTask, getTaskForOwner, isTerminalStatus, serializeTask } from "./tasks.js"
+import { cancelTask, createTask, getTaskForOwner, isTerminalStatus, serializeTask, syncOpenClawTask } from "./tasks.js"
 
 const OWNER_HEADER = "x-geminispark-client-id"
 
@@ -145,6 +145,21 @@ export function buildServer() {
     return undefined
   }
 
+  async function getFreshTaskForOwner(taskId: string, ownerId: string) {
+    const task = await getTaskForOwner(taskId, ownerId)
+    if (!task || isTerminalStatus(task.status) || !task.runtimeRunId) {
+      return task
+    }
+
+    try {
+      await syncOpenClawTask(task.id)
+      return (await getTaskForOwner(taskId, ownerId)) || task
+    } catch (error) {
+      app.log.warn({ error, taskId }, "Failed to refresh running Gemini Spark task")
+      return task
+    }
+  }
+
   app.post("/workspaces", async (request, reply) => {
     const unauthorized = requireAgentApiAuthorization(request, reply)
     if (unauthorized) {
@@ -261,7 +276,7 @@ export function buildServer() {
         return sendOwnerIdRequired(reply)
       }
 
-      const task = await getTaskForOwner(request.params.taskId, ownerId)
+      const task = await getFreshTaskForOwner(request.params.taskId, ownerId)
       if (!task) {
         return reply.code(404).send({ error: "Task not found." })
       }
@@ -305,7 +320,7 @@ export function buildServer() {
         return sendOwnerIdRequired(reply)
       }
 
-      const initialTask = await getTaskForOwner(request.params.taskId, ownerId)
+      const initialTask = await getFreshTaskForOwner(request.params.taskId, ownerId)
       if (!initialTask) {
         return reply.code(404).send({ error: "Task not found." })
       }
@@ -334,6 +349,7 @@ export function buildServer() {
 
       send("task", serializeTask(initialTask))
 
+      let syncInFlight = false
       const interval = setInterval(async () => {
         if (closed) {
           clearInterval(interval)
@@ -341,6 +357,14 @@ export function buildServer() {
         }
 
         try {
+          if (!syncInFlight) {
+            syncInFlight = true
+            await syncOpenClawTask(request.params.taskId).catch((error) => {
+              app.log.warn({ error, taskId: request.params.taskId }, "Failed to refresh streamed Gemini Spark task")
+            })
+            syncInFlight = false
+          }
+
           const task = await getTaskForOwner(request.params.taskId, ownerId)
           if (!task) {
             send("error", { error: "Task not found." })
@@ -357,6 +381,7 @@ export function buildServer() {
             reply.raw.end()
           }
         } catch (error) {
+          syncInFlight = false
           app.log.error({ error }, "Failed to stream task event")
           send("error", { error: "Failed to stream task event." })
         }

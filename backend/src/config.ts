@@ -37,6 +37,7 @@ export const config = {
   agentApiToken: process.env.AGENT_API_TOKEN || "",
   openClawGatewayUrl: (process.env.OPENCLAW_GATEWAY_URL || "").replace(/\/$/, ""),
   openClawGatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || "",
+  openClawFetchTimeoutMs: numberEnv("OPENCLAW_FETCH_TIMEOUT_MS", 15_000),
   openClawSyncIntervalMs: numberEnv("OPENCLAW_SYNC_INTERVAL_MS", 5_000),
   openClawSyncBatchSize: numberEnv("OPENCLAW_SYNC_BATCH_SIZE", 25),
   kieAiApiKey: process.env.KIE_AI_API_KEY || "",

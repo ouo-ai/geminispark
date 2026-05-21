@@ -101,6 +101,12 @@ function extractUrls(body: unknown): string[] {
   return Array.from(urls)
 }
 
+function compactOpenClawRun(run: Record<string, unknown>) {
+  const compactRun = { ...run }
+  delete compactRun.rawHistory
+  return compactRun
+}
+
 function mediaKindFromUrls(urls: string[], fallback: "image" | "video") {
   if (urls.some((url) => /\.(mp4|mov|webm)(\?|$)/i.test(url))) {
     return "video" as const
@@ -126,6 +132,26 @@ function openClawHeaders() {
 
 function requireOpenClawGatewayUrl() {
   return requireConfig(config.openClawGatewayUrl, "OpenClaw Gateway is missing OPENCLAW_GATEWAY_URL.")
+}
+
+async function fetchOpenClawGateway(url: string, init: RequestInit = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), config.openClawFetchTimeoutMs)
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`${PUBLIC_AGENT_NAME} Gateway request timed out.`)
+    }
+
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function openClawString(value: Record<string, unknown>, ...keys: string[]) {
@@ -195,6 +221,15 @@ function openClawEvents(value: unknown) {
     }))
 }
 
+function shouldTreatRunningRunAsFailed(status: RuntimeRunSnapshot["status"], error: string | undefined, events: ProviderEvent[]) {
+  if ((status !== "running" && status !== "queued") || !error) {
+    return false
+  }
+
+  const syncFailureCount = events.filter((event) => event.type === "runtime_sync_failed").length
+  return syncFailureCount >= 3
+}
+
 function eventKey(event: ProviderEvent, index: number) {
   return event.id || `${event.createdAt || ""}:${event.type}:${event.message}:${index}`
 }
@@ -221,11 +256,14 @@ async function emitOpenClawEvents(
 
 function snapshotFromOpenClawRun(run: Record<string, unknown>, fallbackIntent: AgentIntent = "text"): RuntimeRunSnapshot {
   const artifacts = openClawArtifacts(run.artifacts)
+  const events = openClawEvents(run.events)
   const artifactUrls = artifacts
     .map((artifact) => artifact.url)
     .filter((url): url is string => typeof url === "string" && /^https?:\/\//.test(url))
-  const mediaUrls = artifactUrls.length > 0 ? artifactUrls : extractUrls(run)
+  const mediaUrls = artifactUrls.length > 0 ? artifactUrls : extractUrls([run.message, run.summary, run.output, run.artifacts])
   const intent = openClawIntent(run.intent, fallbackIntent)
+  const error = openClawString(run, "error")
+  const status = openClawStatus(run.status)
   const message =
     openClawString(run, "message", "summary", "output") ||
     artifacts.find((artifact) => typeof artifact.text === "string")?.text ||
@@ -233,7 +271,7 @@ function snapshotFromOpenClawRun(run: Record<string, unknown>, fallbackIntent: A
 
   return {
     intent,
-    status: openClawStatus(run.status),
+    status: shouldTreatRunningRunAsFailed(status, error, events) ? "failed" : status,
     provider: PUBLIC_AGENT_NAME,
     model: PUBLIC_AGENT_NAME,
     message: publicAgentText(message),
@@ -248,9 +286,9 @@ function snapshotFromOpenClawRun(run: Record<string, unknown>, fallbackIntent: A
         ? { type: mediaKindFromUrls(mediaUrls, mediaFallbackForIntent(intent)), urls: mediaUrls }
         : undefined,
     artifacts,
-    events: openClawEvents(run.events),
-    error: openClawString(run, "error"),
-    raw: run,
+    events,
+    error,
+    raw: compactOpenClawRun(run),
   }
 }
 
@@ -277,7 +315,7 @@ export async function ensureOpenClawWorkspace(userId: string, projectAgentId: st
 
   const gatewayUrl = requireOpenClawGatewayUrl()
   try {
-    const response = await fetch(`${gatewayUrl}/workspaces`, {
+    const response = await fetchOpenClawGateway(`${gatewayUrl}/workspaces`, {
       method: "POST",
       headers: openClawHeaders(),
       body: JSON.stringify({
@@ -332,7 +370,7 @@ export async function callOpenClawRun(
   const gatewayUrl = requireOpenClawGatewayUrl()
   const runContext = await projectContextForRun(context.userId, context.projectAgentId, context.chatThreadId)
   const workspaceId = await ensureOpenClawWorkspace(context.userId, context.projectAgentId)
-  const response = await fetch(`${gatewayUrl}/runs`, {
+  const response = await fetchOpenClawGateway(`${gatewayUrl}/runs`, {
     method: "POST",
     headers: openClawHeaders(),
     body: JSON.stringify({
@@ -375,7 +413,7 @@ export async function callOpenClawRun(
 
 export async function fetchOpenClawRunSnapshot(runId: string, fallbackIntent: AgentIntent = "text") {
   const gatewayUrl = requireOpenClawGatewayUrl()
-  const response = await fetch(`${gatewayUrl}/runs/${encodeURIComponent(runId)}`, {
+  const response = await fetchOpenClawGateway(`${gatewayUrl}/runs/${encodeURIComponent(runId)}`, {
     headers: openClawHeaders(),
   })
   const run = await parseGatewayResponse(response)

@@ -10,6 +10,8 @@ import type { AgentIntent, ClientAttachment, ClientMessage, ProviderEvent, Provi
 
 const TERMINAL_STATUSES = new Set<TaskStatus>([TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELED])
 const PUBLIC_AGENT_NAME = "Gemini Spark"
+const BACKEND_SYNC_FAILURE_LIMIT = 6
+const BACKEND_SYNC_FAILURE_MIN_AGE_MS = 10 * 60 * 1000
 
 export type CreateTaskParams = {
   message: string
@@ -212,6 +214,66 @@ async function appendProviderEvent(taskId: string, event: ProviderEvent) {
     providerCreatedAt: event.createdAt,
     ...(event.data && typeof event.data === "object" ? (event.data as Record<string, unknown>) : { value: event.data }),
   })
+
+  if (progress !== undefined) {
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { progress },
+    })
+  }
+}
+
+async function appendProviderEvents(taskId: string, events: ProviderEvent[]) {
+  if (events.length === 0) {
+    return
+  }
+
+  const existing = await prisma.taskEvent.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  })
+  const recordedProviderEventIds = new Set(
+    existing
+      .map((row) => {
+        const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : {}
+        return typeof data.providerEventId === "string" ? data.providerEventId : ""
+      })
+      .filter(Boolean),
+  )
+  const nextProviderEventIds = new Set<string>()
+  const rows: Prisma.TaskEventCreateManyInput[] = []
+  let progress: number | undefined
+
+  for (const event of events) {
+    if (event.id) {
+      if (recordedProviderEventIds.has(event.id) || nextProviderEventIds.has(event.id)) {
+        continue
+      }
+      nextProviderEventIds.add(event.id)
+    }
+
+    const eventProgress = progressFromProviderEvent(event)
+    if (eventProgress !== undefined) {
+      progress = progress === undefined ? eventProgress : Math.max(progress, eventProgress)
+    }
+
+    rows.push({
+      taskId,
+      type: event.type,
+      message: event.message,
+      data: toJson({
+        source: "openclaw",
+        providerEventId: event.id,
+        providerCreatedAt: event.createdAt,
+        ...(event.data && typeof event.data === "object" ? (event.data as Record<string, unknown>) : { value: event.data }),
+      }),
+    })
+  }
+
+  if (rows.length > 0) {
+    await prisma.taskEvent.createMany({ data: rows })
+  }
 
   if (progress !== undefined) {
     await prisma.task.update({
@@ -556,9 +618,7 @@ export async function syncOpenClawTask(taskId: string) {
 
   const intent = fromDbIntent(task.intent)
   const snapshot = await fetchOpenClawRunSnapshot(task.runtimeRunId, intent)
-  for (const event of snapshot.events) {
-    await appendProviderEvent(taskId, event)
-  }
+  await appendProviderEvents(taskId, snapshot.events)
 
   await prisma.task.update({
     where: { id: taskId },
@@ -600,27 +660,100 @@ export async function syncOpenClawTask(taskId: string) {
   }
 }
 
-export async function syncRunningOpenClawTasks(limit = 25) {
-  const tasks = await prisma.task.findMany({
+async function storeOpenClawSyncFailure(task: Task, error: unknown) {
+  const message = error instanceof Error ? error.message : "Gemini Spark runtime sync failed."
+  const previousFailures = await prisma.taskEvent.count({
     where: {
-      status: TaskStatus.RUNNING,
-      runtimeRunId: {
-        not: null,
-      },
+      taskId: task.id,
+      type: "runtime_sync_failed",
     },
-    orderBy: [
-      {
-        lastRuntimeEventAt: "asc",
-      },
-      {
-        updatedAt: "asc",
-      },
-    ],
-    take: limit,
+  })
+  const nextFailureCount = previousFailures + 1
+  const shouldFailTask =
+    nextFailureCount >= BACKEND_SYNC_FAILURE_LIMIT &&
+    Date.now() - task.createdAt.getTime() >= BACKEND_SYNC_FAILURE_MIN_AGE_MS
+
+  await appendTaskEvent(task.id, "runtime_sync_failed", "Gemini Spark could not sync the runtime yet.", {
+    source: "backend",
+    error: publicAgentText(message),
+    syncFailureCount: nextFailureCount,
   })
 
+  await prisma.task.update({
+    where: { id: task.id },
+    data: {
+      lastRuntimeEventAt: new Date(),
+      ...(shouldFailTask
+        ? {
+            status: TaskStatus.FAILED,
+            progress: 100,
+            error: publicAgentText(message),
+            finishedAt: new Date(),
+          }
+        : {}),
+    },
+  })
+
+  if (shouldFailTask) {
+    await appendTaskEvent(task.id, "failed", publicAgentText(message), {
+      source: "backend",
+      syncFailureCount: nextFailureCount,
+    })
+  }
+}
+
+async function runningTasksForSync(limit: number) {
+  const normalizedLimit = Math.max(1, limit)
+  const recentTake = Math.max(1, Math.floor(normalizedLimit / 2))
+  const staleTake = Math.max(1, normalizedLimit - recentTake)
+  const where = {
+    status: TaskStatus.RUNNING,
+    runtimeRunId: {
+      not: null,
+    },
+  } satisfies Prisma.TaskWhereInput
+
+  const [recent, stale] = await Promise.all([
+    prisma.task.findMany({
+      where,
+      orderBy: [
+        {
+          createdAt: "desc",
+        },
+      ],
+      take: recentTake,
+    }),
+    prisma.task.findMany({
+      where,
+      orderBy: [
+        {
+          lastRuntimeEventAt: "asc",
+        },
+        {
+          updatedAt: "asc",
+        },
+      ],
+      take: staleTake,
+    }),
+  ])
+
+  const deduped = new Map<string, Task>()
+  for (const task of [...recent, ...stale]) {
+    deduped.set(task.id, task)
+  }
+
+  return Array.from(deduped.values()).slice(0, normalizedLimit)
+}
+
+export async function syncRunningOpenClawTasks(limit = 25) {
+  const tasks = await runningTasksForSync(limit)
+
   for (const task of tasks) {
-    await syncOpenClawTask(task.id)
+    try {
+      await syncOpenClawTask(task.id)
+    } catch (error) {
+      await storeOpenClawSyncFailure(task, error)
+    }
   }
 
   return tasks.length

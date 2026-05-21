@@ -16,6 +16,7 @@ const OPENCLAW_AGENT_ID = process.env.OPENCLAW_AGENT_ID || "geminispark"
 const OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_DATA_DIR || "/opt/openclaw-data/config"
 const OPENCLAW_ACTIVITY_MAX_EVENTS = Math.max(10, Math.min(200, Number(process.env.OPENCLAW_ACTIVITY_MAX_EVENTS || 80)))
 const OPENCLAW_RPC_TIMEOUT_MS = Number(process.env.OPENCLAW_RPC_TIMEOUT_MS || 30_000)
+const OPENCLAW_SYNC_FAILURE_LIMIT = Math.max(1, Number(process.env.OPENCLAW_SYNC_FAILURE_LIMIT || 3))
 const PUBLIC_AGENT_NAME = "Gemini Spark"
 const OPENCLAW_CLIENT_ID = "gateway-client"
 const OPENCLAW_CLIENT_MODE = "backend"
@@ -1023,6 +1024,10 @@ function mergeRunEvents(run, nextEvents) {
   return changed
 }
 
+function countRunEvents(run, type) {
+  return Array.isArray(run.events) ? run.events.filter((event) => event?.type === type).length : 0
+}
+
 function isRuntimeBusy(history) {
   if (!history || typeof history !== "object") {
     return false
@@ -1112,6 +1117,18 @@ async function refreshRunFromRuntime(run) {
     return run
   }
 
+  const existingSyncFailureCount = countRunEvents(run, "runtime_sync_failed")
+  if (!run.message && run.error && existingSyncFailureCount >= OPENCLAW_SYNC_FAILURE_LIMIT) {
+    run.status = "failed"
+    run.finishedAt = run.finishedAt || new Date().toISOString()
+    await addEvent(run, "failed", run.error, {
+      progress: 100,
+      syncFailureCount: existingSyncFailureCount,
+    })
+    await saveRun(run)
+    return run
+  }
+
   try {
     const history = await loadRuntimeHistory(run.runtimeSessionId)
     const entries = historyEntries(history)
@@ -1147,9 +1164,20 @@ async function refreshRunFromRuntime(run) {
     }
   } catch (error) {
     run.error = error instanceof Error ? publicAgentText(error.message) : "Gemini Spark runtime sync failed."
+    const nextFailureCount = countRunEvents(run, "runtime_sync_failed") + 1
     await addEvent(run, "runtime_sync_failed", "Gemini Spark could not sync the runtime yet.", {
       progress: Math.max(25, Number(run.progress || 25)),
+      syncFailureCount: nextFailureCount,
     })
+
+    if (!run.message && nextFailureCount >= OPENCLAW_SYNC_FAILURE_LIMIT) {
+      run.status = "failed"
+      run.finishedAt = new Date().toISOString()
+      await addEvent(run, "failed", run.error, {
+        progress: 100,
+        syncFailureCount: nextFailureCount,
+      })
+    }
   }
 
   run.updatedAt = new Date().toISOString()
