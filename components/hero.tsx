@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Sparkles } from "lucide-react"
+import { ArrowRight, Sparkles, Video } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { useState, useEffect, useRef } from "react"
 import { GEMINI_SPARK_PENDING_PROMPT_KEY } from "@/lib/gemini-spark-prompt-transfer"
@@ -23,6 +23,8 @@ const trustedBy = [
   { name: "Students", text: "Students" },
   { name: "Teams", text: "Teams" },
 ]
+
+const planningModes = ["Research", "Marketing", "Product", "Ops"]
 
 export function Hero() {
   const shouldReduceMotion = useReducedMotion()
@@ -138,7 +140,7 @@ export function Hero() {
       <div className="hero-glow absolute inset-0 pointer-events-none" />
       
       <div className="flex items-center justify-center pt-28 lg:pt-32 pb-12 sm:pb-14">
-        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <motion.div
             initial={shouldReduceMotion ? {} : { opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -212,53 +214,47 @@ export function Hero() {
           </motion.div>
 
           <motion.div
-            initial={shouldReduceMotion ? {} : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="flex items-center justify-center gap-2 text-muted-foreground/30 mb-6 pointer-events-none select-none"
-            aria-hidden="true"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/40" />
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/20" />
-            <span className="w-1.5 h-1.5 rounded-full bg-primary/40" />
-          </motion.div>
-
-          <motion.div
             initial={shouldReduceMotion ? {} : fadeUp.initial}
             animate={fadeUp.animate}
-            transition={{ duration: 0.5, delay: 0.5 }}
-            className="mb-6"
+            transition={{ duration: 0.5, delay: 0.45 }}
+            className="mx-auto mt-7 w-full max-w-4xl rounded-2xl border border-white/10 bg-card/55 p-5 text-left backdrop-blur-xl sm:p-6"
           >
-            <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground mb-2">
-              <span className="text-gradient-spark">Agent planning</span> is live
-            </p>
-            <p className="text-muted-foreground text-xs sm:text-sm">Research, marketing, product, and operations modes</p>
-          </motion.div>
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase text-muted-foreground">
+                  <span className="h-2 w-2 rounded-full bg-primary" />
+                  Agent planning is live
+                </div>
+                <p className="text-xl font-semibold leading-tight text-foreground sm:text-2xl">
+                  Research, marketing, product, and ops workflows.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2" aria-label="Agent planning modes">
+                  {planningModes.map((mode) => (
+                    <span
+                      key={mode}
+                      className="rounded-full border border-white/10 px-2.5 py-1 text-xs text-muted-foreground"
+                    >
+                      {mode}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-          <motion.div
-            initial={shouldReduceMotion ? {} : fadeUp.initial}
-            animate={fadeUp.animate}
-            transition={{ duration: 0.5, delay: 0.6 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-3"
-          >
-            <Button size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
-              <Link href="/gemini-spark" onClick={() => trackHeroAction("chat_primary")}>
-                Open Gemini Spark Chat
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </Button>
-            <Button variant="secondary" size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
-              <Link href="/gemini-omni" onClick={() => trackHeroAction("generation_studio")}>
-                <Sparkles className="w-4 h-4" />
-                Gemini Omni
-              </Link>
-            </Button>
-            <Button variant="outline" size="xl" rounded="full" className="gap-2 bg-transparent w-full sm:w-auto" asChild>
-              <a href="#how-it-works" onClick={() => trackHeroAction("how_it_works")}>
-                How it Works
-                <ArrowRight className="w-4 h-4" />
-              </a>
-            </Button>
+              <div className="flex flex-wrap items-center gap-2 lg:shrink-0 lg:justify-end">
+                <Button rounded="full" className="px-4" asChild>
+                  <Link href="/gemini-spark" onClick={() => trackHeroAction("chat_primary")}>
+                    Open Chat
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                </Button>
+                <Button variant="secondary" rounded="full" className="px-3.5" asChild>
+                  <Link href="/gemini-omni" onClick={() => trackHeroAction("generation_studio")}>
+                    <Video className="w-4 h-4" />
+                    Gemini Omni
+                  </Link>
+                </Button>
+              </div>
+            </div>
           </motion.div>
 
         </div>

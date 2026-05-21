@@ -3739,38 +3739,31 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   )}
 
                   {shouldShowPaymentPrompt && (
-                    <div className="mb-3 rounded-xl border border-primary/25 bg-primary/[0.075] p-3 text-sm text-foreground shadow-[0_18px_55px_rgba(0,0,0,0.24)]">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/15 text-primary">
-                            <CreditCard className="h-4 w-4" aria-hidden="true" />
-                          </span>
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground">
-                              {paymentPromptVariant === "out_of_credits"
-                                ? "Free credits are used up"
-                                : `${totalCredits} free credit${totalCredits === 1 ? "" : "s"} remaining`}
-                            </p>
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              Upgrade monthly for 1,000 credits across chat, image, and video tasks.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2 sm:self-start">
-                          <Button type="button" size="sm" rounded="full" className="gap-2" onClick={clickPaymentPrompt}>
-                            Upgrade monthly
-                            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                          </Button>
-                          <button
-                            type="button"
-                            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
-                            onClick={dismissPaymentPrompt}
-                            aria-label="Dismiss upgrade prompt"
-                          >
-                            <X className="h-4 w-4" aria-hidden="true" />
-                          </button>
-                        </div>
-                      </div>
+                    <div className="mb-3 flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      <CreditCard className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="text-foreground/80">
+                          {paymentPromptVariant === "out_of_credits"
+                            ? "Free credits are used up."
+                            : `${totalCredits} free credit${totalCredits === 1 ? "" : "s"} remaining.`}
+                        </span>{" "}
+                        <span className="hidden sm:inline">Upgrade monthly for 1,000 credits.</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={clickPaymentPrompt}
+                        className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-primary transition hover:bg-primary/10"
+                      >
+                        Upgrade
+                      </button>
+                      <button
+                        type="button"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition hover:bg-foreground/5 hover:text-foreground"
+                        onClick={dismissPaymentPrompt}
+                        aria-label="Dismiss upgrade prompt"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
                     </div>
                   )}
 
