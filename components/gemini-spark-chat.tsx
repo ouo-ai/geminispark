@@ -250,6 +250,7 @@ const MAX_PERSISTED_ATTACHMENT_BYTES = 400_000
 const MAX_PERSISTED_SESSIONS = 30
 const MAX_PERSISTED_MESSAGES = 120
 const MAX_PERSISTED_EVENTS = 80
+const TASK_EVENT_POLL_FALLBACK_MS = 5_000
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY_PREFIX = "gemini-spark:chat-sessions:v2"
 const SESSION_PANEL_COLLAPSED_KEY = "gemini-spark:session-panel-collapsed:v1"
@@ -930,6 +931,23 @@ async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask)
     let settled = false
     const source = new EventSource(agentApiUrl(`/tasks/${encodeURIComponent(taskId)}/events`))
 
+    async function pollFallbackOnce() {
+      try {
+        const task = await fetchTask(taskId)
+        onUpdate(task)
+
+        if (isTerminalTask(task)) {
+          settle(() => resolve(task))
+        }
+      } catch {
+        // Keep the event stream alive; transient poll failures should not end the task wait.
+      }
+    }
+
+    const pollInterval = window.setInterval(() => {
+      void pollFallbackOnce()
+    }, TASK_EVENT_POLL_FALLBACK_MS)
+
     function settle(callback: () => void) {
       if (settled) {
         return
@@ -937,6 +955,7 @@ async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask)
 
       settled = true
       source.close()
+      window.clearInterval(pollInterval)
       callback()
     }
 
@@ -954,8 +973,16 @@ async function waitForTaskCompletion(taskId: string, onUpdate: (task: AgentTask)
     })
 
     source.addEventListener("error", () => {
+      if (settled) {
+        return
+      }
+
       source.close()
-      pollTaskUntilDone(taskId, onUpdate).then(resolve, reject)
+      window.clearInterval(pollInterval)
+      pollTaskUntilDone(taskId, onUpdate).then(
+        (task) => settle(() => resolve(task)),
+        (error) => settle(() => reject(error)),
+      )
     })
   })
 }

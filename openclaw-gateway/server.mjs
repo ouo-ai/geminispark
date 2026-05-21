@@ -16,6 +16,7 @@ const OPENCLAW_AGENT_ID = process.env.OPENCLAW_AGENT_ID || "geminispark"
 const OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_DATA_DIR || "/opt/openclaw-data/config"
 const OPENCLAW_ACTIVITY_MAX_EVENTS = Math.max(10, Math.min(200, Number(process.env.OPENCLAW_ACTIVITY_MAX_EVENTS || 80)))
 const OPENCLAW_RPC_TIMEOUT_MS = Number(process.env.OPENCLAW_RPC_TIMEOUT_MS || 30_000)
+const OPENCLAW_HISTORY_RPC_TIMEOUT_MS = Number(process.env.OPENCLAW_HISTORY_RPC_TIMEOUT_MS || 8_000)
 const OPENCLAW_SYNC_FAILURE_LIMIT = Math.max(1, Number(process.env.OPENCLAW_SYNC_FAILURE_LIMIT || 3))
 const PUBLIC_AGENT_NAME = "Gemini Spark"
 const OPENCLAW_CLIENT_ID = "gateway-client"
@@ -26,6 +27,7 @@ const OPENCLAW_SCOPES = ["operator.read", "operator.write"]
 const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
 
 const runs = new Map()
+const refreshingRuns = new Set()
 let webSocketConstructorPromise = null
 let runtimeDeviceAuthPromise = null
 
@@ -537,9 +539,13 @@ async function callOpenClaw(method, params = {}) {
         }),
       )
     }
+    const rpcTimeoutMs =
+      method === "chat.history" || method === "sessions.preview"
+        ? OPENCLAW_HISTORY_RPC_TIMEOUT_MS
+        : OPENCLAW_RPC_TIMEOUT_MS
     const timeout = setTimeout(() => {
       fail(new Error(`OpenClaw RPC timed out: ${method}`))
-    }, OPENCLAW_RPC_TIMEOUT_MS)
+    }, rpcTimeoutMs)
 
     const sendConnect = (nonce) => {
       sendRequest(connectId, "connect", {
@@ -1185,6 +1191,25 @@ async function refreshRunFromRuntime(run) {
   return run
 }
 
+function refreshRunFromRuntimeInBackground(run) {
+  if (!run?.runId || run.status === "failed" || run.status === "succeeded" || run.status === "canceled") {
+    return
+  }
+
+  if (refreshingRuns.has(run.runId)) {
+    return
+  }
+
+  refreshingRuns.add(run.runId)
+  void refreshRunFromRuntime(run)
+    .catch((error) => {
+      console.error(`Failed to refresh run ${run.runId}:`, error)
+    })
+    .finally(() => {
+      refreshingRuns.delete(run.runId)
+    })
+}
+
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`)
@@ -1282,8 +1307,13 @@ const server = createServer(async (request, response) => {
         return json(response, 404, { error: "Run not found." })
       }
 
-      const refreshed = await refreshRunFromRuntime(run)
-      return json(response, 200, refreshed)
+      if (url.searchParams.get("refresh") === "sync") {
+        const refreshed = await refreshRunFromRuntime(run)
+        return json(response, 200, refreshed)
+      }
+
+      refreshRunFromRuntimeInBackground(run)
+      return json(response, 200, run)
     }
 
     return json(response, 404, { error: "Not found." })
