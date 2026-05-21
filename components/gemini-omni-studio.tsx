@@ -14,6 +14,7 @@ import {
   Sparkles,
   Upload,
   Wand2,
+  X,
   Zap,
 } from "lucide-react"
 
@@ -172,8 +173,8 @@ export function GeminiOmniStudio() {
   const [videoAspect, setVideoAspect] = useState<VideoAspect>("16:9")
   const [imageSize, setImageSize] = useState<ImageSize>("1:1")
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("png")
-  const [videoRefUrlsText, setVideoRefUrlsText] = useState("")
-  const [editSourceUrlsText, setEditSourceUrlsText] = useState("")
+  const [videoRefUrls, setVideoRefUrls] = useState<string[]>([])
+  const [editSourceUrls, setEditSourceUrls] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [currentTask, setCurrentTask] = useState<StudioTask | null>(null)
@@ -208,23 +209,8 @@ export function GeminiOmniStudio() {
 
   const creditCost = mode === "video" ? VIDEO_CREDIT_COST : IMAGE_CREDIT_COST
 
-  const parsedRefUrls = useMemo(
-    () =>
-      videoRefUrlsText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean),
-    [videoRefUrlsText],
-  )
-
-  const parsedEditUrls = useMemo(
-    () =>
-      editSourceUrlsText
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean),
-    [editSourceUrlsText],
-  )
+  const parsedRefUrls = videoRefUrls
+  const parsedEditUrls = editSourceUrls
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true)
@@ -391,7 +377,7 @@ export function GeminiOmniStudio() {
       }
       setUploadError(null)
       const setLoading = target === "video" ? setVideoUploading : setEditUploading
-      const setText = target === "video" ? setVideoRefUrlsText : setEditSourceUrlsText
+      const setList = target === "video" ? setVideoRefUrls : setEditSourceUrls
       setLoading(true)
       try {
         const uploaded: string[] = []
@@ -426,10 +412,7 @@ export function GeminiOmniStudio() {
 
           uploaded.push(sign.publicUrl)
         }
-        setText((prev) => {
-          const lines = prev.split(/\r?\n/).filter(Boolean)
-          return [...lines, ...uploaded].join("\n")
-        })
+        setList((prev) => [...prev, ...uploaded])
       } catch (error) {
         setUploadError(error instanceof Error ? error.message : "Upload failed.")
       } finally {
@@ -438,6 +421,14 @@ export function GeminiOmniStudio() {
     },
     [],
   )
+
+  const removeUploadedUrl = useCallback((target: "video" | "edit", url: string) => {
+    if (target === "video") {
+      setVideoRefUrls((prev) => prev.filter((u) => u !== url))
+    } else {
+      setEditSourceUrls((prev) => prev.filter((u) => u !== url))
+    }
+  }, [])
 
   const startCheckout = useCallback(
     async (plan: PaidPlan) => {
@@ -645,28 +636,15 @@ export function GeminiOmniStudio() {
                     </SettingField>
                   </div>
 
-                  <details className="group rounded-lg border border-border/80 bg-background/40">
-                    <summary className="flex cursor-pointer select-none items-center justify-between px-3 py-2 text-sm text-muted-foreground transition group-open:text-foreground">
-                      <span>Reference images (optional)</span>
-                      <span className="text-xs text-muted-foreground">
-                        {parsedRefUrls.length > 0 ? `${parsedRefUrls.length}/7` : "0/7"}
-                      </span>
-                    </summary>
-                    <div className="space-y-2 border-t border-border/60 px-3 py-3">
-                      <Textarea
-                        value={videoRefUrlsText}
-                        onChange={(event) => setVideoRefUrlsText(event.target.value)}
-                        placeholder={"https://...\nhttps://...\n(one URL per line)"}
-                        className="min-h-20 resize-y bg-background/60 font-mono text-xs"
-                      />
-                      <UploadButton
-                        loading={videoUploading}
-                        max={7}
-                        current={parsedRefUrls.length}
-                        onPick={(files) => uploadFiles(files, "video")}
-                      />
-                    </div>
-                  </details>
+                  <ImageDropzone
+                    label="Reference images (optional)"
+                    urls={videoRefUrls}
+                    onPick={(files) => uploadFiles(files, "video")}
+                    onRemove={(url) => removeUploadedUrl("video", url)}
+                    loading={videoUploading}
+                    max={7}
+                    required={false}
+                  />
                 </>
               ) : (
                 <>
@@ -705,24 +683,15 @@ export function GeminiOmniStudio() {
                   </div>
 
                   {mode === "image-edit" && (
-                    <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.04] p-3">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-sm">Source images</Label>
-                        <span className="text-xs text-muted-foreground">{parsedEditUrls.length}/10</span>
-                      </div>
-                      <Textarea
-                        value={editSourceUrlsText}
-                        onChange={(event) => setEditSourceUrlsText(event.target.value)}
-                        placeholder={"https://...\nhttps://...\n(one URL per line, 1 to 10)"}
-                        className="min-h-20 resize-y bg-background/60 font-mono text-xs"
-                      />
-                      <UploadButton
-                        loading={editUploading}
-                        max={10}
-                        current={parsedEditUrls.length}
-                        onPick={(files) => uploadFiles(files, "edit")}
-                      />
-                    </div>
+                    <ImageDropzone
+                      label="Source images"
+                      urls={editSourceUrls}
+                      onPick={(files) => uploadFiles(files, "edit")}
+                      onRemove={(url) => removeUploadedUrl("edit", url)}
+                      loading={editUploading}
+                      max={10}
+                      required
+                    />
                   )}
                 </>
               )}
@@ -1127,51 +1096,140 @@ function SettingField({ label, children }: { label: string; children: React.Reac
   )
 }
 
-function UploadButton({
+function ImageDropzone({
+  label,
+  urls,
+  onPick,
+  onRemove,
   loading,
   max,
-  current,
-  onPick,
+  required,
 }: {
+  label: string
+  urls: string[]
+  onPick: (files: FileList) => void
+  onRemove: (url: string) => void
   loading: boolean
   max: number
-  current: number
-  onPick: (files: FileList) => void
+  required: boolean
 }) {
-  const remaining = Math.max(0, max - current)
-  const disabled = loading || remaining === 0
+  const remaining = Math.max(0, max - urls.length)
+  const limitReached = remaining === 0
+  const disabled = loading || limitReached
+  const [dragOver, setDragOver] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  const filterAndPick = (files: FileList | File[]) => {
+    const images = Array.from(files).filter((file) => file.type.startsWith("image/"))
+    if (images.length === 0) return
+    const slice = images.slice(0, remaining)
+    const dt = new DataTransfer()
+    slice.forEach((file) => dt.items.add(file))
+    if (dt.files.length > 0) onPick(dt.files)
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <label
+    <div
+      className={cn(
+        "rounded-xl border bg-background/40 p-3 transition-colors",
+        required
+          ? "border-primary/30 bg-primary/[0.04]"
+          : "border-border/80",
+        dragOver && !disabled && "border-primary/60 bg-primary/[0.06]",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <Label className="text-sm">
+          {label}
+          {required && <span className="ml-1 text-xs text-primary">· required</span>}
+        </Label>
+        <span className="text-xs text-muted-foreground">
+          {urls.length}/{max}
+        </span>
+      </div>
+
+      <div
+        onDragOver={(event) => {
+          event.preventDefault()
+          if (!disabled) setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDragOver(false)
+          if (disabled) return
+          filterAndPick(event.dataTransfer.files)
+        }}
         className={cn(
-          "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/60 px-2.5 py-1.5 font-medium text-foreground transition hover:border-primary/50 hover:text-primary",
-          disabled && "cursor-not-allowed opacity-60 hover:border-border hover:text-foreground",
+          "grid grid-cols-3 gap-2 sm:grid-cols-4",
+          urls.length === 0 && "min-h-32",
         )}
       >
-        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-        {loading ? "Uploading…" : "Upload images"}
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          multiple
-          disabled={disabled}
-          onChange={(event) => {
-            const files = event.target.files
-            if (files && files.length > 0) {
-              const slice = Array.from(files).slice(0, remaining)
-              const dt = new DataTransfer()
-              slice.forEach((file) => dt.items.add(file))
-              onPick(dt.files)
-            }
-            event.target.value = ""
-          }}
-          className="hidden"
-        />
-      </label>
-      <span className="text-muted-foreground">
-        {remaining > 0 ? `${remaining} slot${remaining === 1 ? "" : "s"} left` : "Limit reached"}
-        {" · PNG / JPG / WEBP / GIF · max 20MB each"}
-      </span>
+        {urls.map((url) => (
+          <div
+            key={url}
+            className="group relative aspect-square overflow-hidden rounded-lg border border-border bg-black"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={url} alt="" className="h-full w-full object-cover" />
+            <button
+              type="button"
+              onClick={() => onRemove(url)}
+              aria-label="Remove image"
+              className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white opacity-0 transition-opacity hover:bg-black focus:opacity-100 group-hover:opacity-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+
+        {!limitReached && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+            className={cn(
+              "flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed text-xs transition",
+              dragOver
+                ? "border-primary/60 bg-primary/[0.08] text-primary"
+                : "border-border bg-background/40 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+              disabled && "cursor-not-allowed opacity-50 hover:border-border hover:text-muted-foreground",
+            )}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Uploading…</span>
+              </>
+            ) : (
+              <>
+                <Upload className="h-5 w-5" />
+                <span>Add images</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        multiple
+        disabled={disabled}
+        onChange={(event) => {
+          const files = event.target.files
+          if (files && files.length > 0) filterAndPick(files)
+          event.target.value = ""
+        }}
+        className="hidden"
+      />
+
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        {limitReached
+          ? "Limit reached. Remove an image to add another."
+          : `Drag & drop or click. PNG / JPG / WEBP / GIF · max 20MB each.`}
+      </p>
     </div>
   )
 }
