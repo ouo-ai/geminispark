@@ -29,7 +29,7 @@ import {
 } from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
-import posthog from "posthog-js"
+import { captureAnalyticsException, captureEvent, identifyAnalyticsUser } from "@/lib/posthog-client"
 
 const paidPlanOrder = ["STARTUP", "PRO"] as const
 const creditPackOrder = ["BOOST_50", "STUDIO_150", "LAUNCH_400"] as const
@@ -95,13 +95,17 @@ export function PricingPage() {
     const status = params.get("billing")
     if (status === "success" || status === "cancel") {
       setBillingStatus(status)
+      captureEvent("checkout_returned", {
+        source: "pricing",
+        status,
+      })
     }
-    posthog.capture("pricing_page_viewed")
+    captureEvent("pricing_page_viewed")
   }, [])
 
   useEffect(() => {
     if (!session?.user) return
-    posthog.identify(session.user.id, {
+    identifyAnalyticsUser(session.user.id, {
       email: session.user.email,
       name: session.user.name,
     })
@@ -161,13 +165,14 @@ export function PricingPage() {
     setIsSigningIn(true)
 
     try {
-      posthog.capture("user_signed_in", { provider: "google", source: "pricing" })
+      captureEvent("sign_in_started", { provider: "google", source: "pricing", pending_checkout: pendingKey })
       await authClient.signIn.social({
         provider: "google",
         callbackURL: "/pricing",
       })
     } catch (error) {
-      posthog.captureException(error)
+      captureAnalyticsException(error, { source: "pricing", action: "sign_in" })
+      captureEvent("sign_in_failed", { provider: "google", source: "pricing" })
       setBillingError(error instanceof Error ? error.message : "Sign in could not be started.")
       setPendingCheckout(null)
       setIsSigningIn(false)
@@ -204,13 +209,20 @@ export function PricingPage() {
 
       window.location.assign(data.url)
     } catch (error) {
+      captureAnalyticsException(error, { source: "pricing", action: "checkout", pending_key: pendingKey })
+      captureEvent("checkout_failed", {
+        source: "pricing",
+        pending_key: pendingKey,
+        checkout_kind: payload.checkoutKind,
+      })
       setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
       setPendingCheckout(null)
     }
   }
 
   function startPlanCheckout(plan: PaidPlan) {
-    posthog.capture("subscription_checkout_started", {
+    captureEvent("subscription_checkout_started", {
+      source: "pricing",
       plan,
       interval: billingInterval,
       price_usd: priceForInterval(plan, billingInterval),
@@ -224,7 +236,8 @@ export function PricingPage() {
       return
     }
 
-    posthog.capture("credit_pack_checkout_started", {
+    captureEvent("credit_pack_checkout_started", {
+      source: "pricing",
       pack,
       credits: CREDIT_PACKS[pack].credits,
       price_usd: CREDIT_PACKS[pack].priceUsd,
@@ -308,7 +321,13 @@ export function PricingPage() {
               <button
                 key={interval}
                 type="button"
-                onClick={() => setBillingInterval(interval)}
+                onClick={() => {
+                  setBillingInterval(interval)
+                  captureEvent("billing_interval_selected", {
+                    source: "pricing",
+                    interval,
+                  })
+                }}
                 className={cn(
                   "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
                   billingInterval === interval ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",

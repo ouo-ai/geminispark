@@ -29,6 +29,7 @@ import {
   ClipboardList,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import { captureEvent } from "@/lib/posthog-client"
 
 const navLinks = [
   { href: "/#features", label: "Features" },
@@ -82,6 +83,19 @@ const toolsMenu = {
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
+  function trackNavClick(label: string, href: string, location: string) {
+    captureEvent("nav_link_clicked", {
+      label,
+      href,
+      location,
+    })
+  }
+
+  function closeMobileMenuAfterClick(label: string, href: string, location: string) {
+    trackNavClick(label, href, location)
+    setMobileMenuOpen(false)
+  }
+
   useEffect(() => {
     if (mobileMenuOpen) {
       document.body.style.overflow = "hidden"
@@ -97,7 +111,12 @@ export function Navbar() {
     <header className="fixed top-0 left-0 right-0 z-50">
       <nav className="mx-auto max-w-6xl px-2 sm:px-4 lg:px-8 py-4" aria-label="Main navigation">
         <div className="flex h-14 items-center justify-between bg-background/60 backdrop-blur-xl border border-border/50 rounded-full px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2" aria-label="Gemini Spark home">
+          <Link
+            href="/"
+            className="flex items-center gap-2"
+            aria-label="Gemini Spark home"
+            onClick={() => trackNavClick("Gemini Spark", "/", "desktop_brand")}
+          >
             <div className="relative h-6 w-6 overflow-hidden rounded-md border border-primary/25 shadow-[0_0_18px_rgba(66,133,244,0.24)]">
               <Image src="/icon-192.png" alt="" fill sizes="24px" className="object-cover" priority />
             </div>
@@ -133,7 +152,11 @@ export function Navbar() {
                         </div>
                         {cat.items.map((item) => (
                           <DropdownMenuItem key={item.href} asChild className="group">
-                            <Link href={item.href} className="flex items-center gap-2 cursor-pointer">
+                            <Link
+                              href={item.href}
+                              className="flex items-center gap-2 cursor-pointer"
+                              onClick={() => trackNavClick(item.label, item.href, "desktop_tools_menu")}
+                            >
                               <item.icon
                                 className="w-4 h-4 text-primary group-data-[highlighted]:text-primary-foreground transition-colors"
                                 aria-hidden="true"
@@ -156,7 +179,11 @@ export function Navbar() {
                         </div>
                         {cat.items.map((item) => (
                           <DropdownMenuItem key={item.href} asChild className="group">
-                            <Link href={item.href} className="flex items-center gap-2 cursor-pointer">
+                            <Link
+                              href={item.href}
+                              className="flex items-center gap-2 cursor-pointer"
+                              onClick={() => trackNavClick(item.label, item.href, "desktop_team_guides_menu")}
+                            >
                               <item.icon
                                 className="w-4 h-4 text-primary group-data-[highlighted]:text-primary-foreground transition-colors"
                                 aria-hidden="true"
@@ -181,7 +208,11 @@ export function Navbar() {
               <DropdownMenuContent align="start" className="w-56 bg-card/95 backdrop-blur-xl border-border">
                 {workflowItems.map((item) => (
                   <DropdownMenuItem key={item.href} asChild className="group">
-                    <Link href={item.href} className="flex items-center gap-2 cursor-pointer">
+                    <Link
+                      href={item.href}
+                      className="flex items-center gap-2 cursor-pointer"
+                      onClick={() => trackNavClick(item.label, item.href, "desktop_workflows_menu")}
+                    >
                       <item.icon
                         className="w-4 h-4 text-primary group-data-[highlighted]:text-primary-foreground transition-colors"
                         aria-hidden="true"
@@ -199,6 +230,7 @@ export function Navbar() {
                 key={link.href}
                 href={link.href}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => trackNavClick(link.label, link.href, "desktop_nav")}
               >
                 {link.label}
               </Link>
@@ -208,10 +240,12 @@ export function Navbar() {
           {/* Desktop Buttons - hidden below lg */}
           <div className="hidden lg:flex items-center gap-3">
             <Button variant="ghost" size="sm" rounded="full" asChild>
-              <Link href="/#how-it-works">How it works</Link>
+              <Link href="/#how-it-works" onClick={() => trackNavClick("How it works", "/#how-it-works", "desktop_action")}>
+                How it works
+              </Link>
             </Button>
             <Button size="sm" rounded="full" className="gap-1.5" asChild>
-              <Link href="/gemini-spark">
+              <Link href="/gemini-spark" onClick={() => trackNavClick("Open Chat", "/gemini-spark", "desktop_action")}>
                 Open Chat
                 <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </Link>
@@ -222,7 +256,11 @@ export function Navbar() {
           <button
             type="button"
             className="lg:hidden p-2 text-muted-foreground hover:text-foreground"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={() => {
+              const nextOpen = !mobileMenuOpen
+              setMobileMenuOpen(nextOpen)
+              captureEvent("mobile_menu_toggled", { open: nextOpen })
+            }}
             aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
             aria-expanded={mobileMenuOpen}
             aria-controls="mobile-menu"
@@ -250,7 +288,11 @@ export function Navbar() {
               aria-label="Mobile navigation menu"
             >
               <div className="flex items-center justify-between px-6 py-4 bg-background border-b border-border/50">
-                <Link href="/" className="flex items-center gap-2" onClick={() => setMobileMenuOpen(false)}>
+                <Link
+                  href="/"
+                  className="flex items-center gap-2"
+                  onClick={() => closeMobileMenuAfterClick("Gemini Spark", "/", "mobile_brand")}
+                >
                   <span className="relative inline-block h-6 w-6 overflow-hidden rounded-md border border-primary/25">
                     <Image src="/icon-192.png" alt="" fill sizes="24px" className="object-cover" />
                   </span>
@@ -264,7 +306,10 @@ export function Navbar() {
                 <button
                   type="button"
                   className="p-2 text-foreground hover:text-primary transition-colors"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={() => {
+                    setMobileMenuOpen(false)
+                    captureEvent("mobile_menu_toggled", { open: false, source: "close_button" })
+                  }}
                   aria-label="Close menu"
                 >
                   <X className="w-6 h-6" aria-hidden="true" />
@@ -282,7 +327,7 @@ export function Navbar() {
                         key={item.href}
                         href={item.href}
                         className="group flex items-center gap-2 px-4 py-3 text-base text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-foreground/10"
-                        onClick={() => setMobileMenuOpen(false)}
+                        onClick={() => closeMobileMenuAfterClick(item.label, item.href, "mobile_tools_menu")}
                       >
                         <item.icon
                           className="w-5 h-5 text-primary group-hover:text-primary transition-colors"
@@ -304,7 +349,7 @@ export function Navbar() {
                         key={item.href}
                         href={item.href}
                         className="group flex items-center gap-2 px-4 py-3 text-base text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-foreground/10"
-                        onClick={() => setMobileMenuOpen(false)}
+                        onClick={() => closeMobileMenuAfterClick(item.label, item.href, "mobile_team_guides_menu")}
                       >
                         <item.icon
                           className="w-5 h-5 text-primary group-hover:text-primary transition-colors"
@@ -325,7 +370,7 @@ export function Navbar() {
                     key={item.href}
                     href={item.href}
                     className="group flex items-center gap-2 px-4 py-3 text-base text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-foreground/10"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => closeMobileMenuAfterClick(item.label, item.href, "mobile_workflows_menu")}
                   >
                     <item.icon
                       className="w-5 h-5 text-primary group-hover:text-primary transition-colors"
@@ -341,7 +386,7 @@ export function Navbar() {
                     key={link.href}
                     href={link.href}
                     className="block px-4 py-3 text-base text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-foreground/10"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => closeMobileMenuAfterClick(link.label, link.href, "mobile_nav")}
                   >
                     {link.label}
                   </Link>
@@ -350,12 +395,15 @@ export function Navbar() {
 
               <div className="px-6 py-4 border-t border-border/50 bg-background flex flex-col gap-3">
                 <Button variant="ghost" rounded="lg" className="justify-center text-base py-6 w-full" asChild>
-                  <Link href="/#how-it-works" onClick={() => setMobileMenuOpen(false)}>
+                  <Link
+                    href="/#how-it-works"
+                    onClick={() => closeMobileMenuAfterClick("How it works", "/#how-it-works", "mobile_action")}
+                  >
                     How it works
                   </Link>
                 </Button>
                 <Button rounded="full" className="py-6 text-base w-full" asChild>
-                  <Link href="/gemini-spark" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/gemini-spark" onClick={() => closeMobileMenuAfterClick("Open Chat", "/gemini-spark", "mobile_action")}>
                     Open Chat
                   </Link>
                 </Button>

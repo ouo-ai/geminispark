@@ -4,6 +4,7 @@ import Link from "next/link"
 import { motion, useReducedMotion } from "framer-motion"
 import { ArrowRight, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { captureEvent } from "@/lib/posthog-client"
 
 export function FinalCTA() {
   const shouldReduceMotion = useReducedMotion()
@@ -37,13 +38,31 @@ export function FinalCTA() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button size="xl" rounded="full" className="gap-2 min-w-[200px]" asChild>
-                <Link href="/gemini-spark">
+                <Link
+                  href="/gemini-spark"
+                  onClick={() =>
+                    captureEvent("cta_clicked", {
+                      location: "final_cta",
+                      action: "open_chat",
+                      destination: "/gemini-spark",
+                    })
+                  }
+                >
                   Open Chat
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </Button>
               <Button variant="outline" size="xl" rounded="full" className="gap-2 min-w-[200px] bg-transparent" asChild>
-                <a href="#how-it-works">
+                <a
+                  href="#how-it-works"
+                  onClick={() =>
+                    captureEvent("cta_clicked", {
+                      location: "final_cta",
+                      action: "how_it_works",
+                      destination: "#how-it-works",
+                    })
+                  }
+                >
                   How it Works
                 </a>
               </Button>

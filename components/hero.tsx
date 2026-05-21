@@ -4,7 +4,9 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, Sparkles } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { GEMINI_SPARK_PENDING_PROMPT_KEY } from "@/lib/gemini-spark-prompt-transfer"
+import { captureEvent } from "@/lib/posthog-client"
 
 const examplePrompts = [
   "Plan a research agent for...",
@@ -26,10 +28,13 @@ export function Hero() {
   const shouldReduceMotion = useReducedMotion()
   const [prompt, setPrompt] = useState("")
   const [isFocused, setIsFocused] = useState(false)
+  const hasTrackedPromptFocus = useRef(false)
+  const hasTrackedPromptStart = useRef(false)
 
   const [displayText, setDisplayText] = useState("")
   const [promptIndex, setPromptIndex] = useState(0)
   const [isTyping, setIsTyping] = useState(true)
+  const cleanPrompt = prompt.trim()
 
   useEffect(() => {
     if (prompt || isFocused || shouldReduceMotion) {
@@ -71,6 +76,60 @@ export function Hero() {
   const fadeUp = {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
+  }
+
+  function persistPromptForChat() {
+    if (!cleanPrompt) {
+      return
+    }
+
+    try {
+      window.sessionStorage.setItem(GEMINI_SPARK_PENDING_PROMPT_KEY, cleanPrompt)
+    } catch {
+      // The chat still opens when session storage is unavailable.
+    }
+  }
+
+  function trackPromptFocus() {
+    setIsFocused(true)
+
+    if (hasTrackedPromptFocus.current) {
+      return
+    }
+
+    hasTrackedPromptFocus.current = true
+    captureEvent("landing_prompt_focused", {
+      location: "hero",
+    })
+  }
+
+  function updatePrompt(value: string) {
+    setPrompt(value)
+
+    const nextPrompt = value.trim()
+    if (!nextPrompt || hasTrackedPromptStart.current) {
+      return
+    }
+
+    hasTrackedPromptStart.current = true
+    captureEvent("landing_prompt_started", {
+      location: "hero",
+      prompt_length: nextPrompt.length,
+    })
+  }
+
+  function trackHeroAction(action: "chat_inline" | "chat_primary" | "how_it_works") {
+    if (action !== "how_it_works") {
+      persistPromptForChat()
+    }
+
+    captureEvent("cta_clicked", {
+      location: "hero",
+      action,
+      destination: action === "how_it_works" ? "#how-it-works" : "/gemini-spark",
+      has_prompt: Boolean(cleanPrompt),
+      prompt_length: cleanPrompt.length,
+    })
   }
 
   return (
@@ -122,8 +181,8 @@ export function Hero() {
                 <input
                   type="text"
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onFocus={() => setIsFocused(true)}
+                  onChange={(e) => updatePrompt(e.target.value)}
+                  onFocus={trackPromptFocus}
                   onBlur={() => setIsFocused(false)}
                   placeholder=""
                   className="w-full bg-transparent px-4 sm:px-5 py-3 sm:py-4 pr-20 sm:pr-32 text-foreground focus:outline-none text-sm sm:text-base"
@@ -143,7 +202,7 @@ export function Hero() {
               </div>
               <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <Button size="sm" rounded="lg" asChild>
-                  <Link href="/gemini-spark">
+                  <Link href="/gemini-spark" onClick={() => trackHeroAction("chat_inline")}>
                     <Sparkles className="w-4 h-4 mr-1.5" />
                     Chat
                   </Link>
@@ -183,13 +242,13 @@ export function Hero() {
             className="flex flex-col sm:flex-row items-center justify-center gap-3"
           >
             <Button size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
-              <Link href="/gemini-spark">
+              <Link href="/gemini-spark" onClick={() => trackHeroAction("chat_primary")}>
                 Open Gemini Spark Chat
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </Button>
             <Button variant="outline" size="xl" rounded="full" className="gap-2 bg-transparent w-full sm:w-auto" asChild>
-              <a href="#how-it-works">
+              <a href="#how-it-works" onClick={() => trackHeroAction("how_it_works")}>
                 How it Works
                 <ArrowRight className="w-4 h-4" />
               </a>

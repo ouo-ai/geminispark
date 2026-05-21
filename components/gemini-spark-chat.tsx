@@ -70,6 +70,13 @@ import {
   type PaidPlan,
 } from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
+import { GEMINI_SPARK_PENDING_PROMPT_KEY } from "@/lib/gemini-spark-prompt-transfer"
+import {
+  captureAnalyticsException,
+  captureEvent,
+  identifyAnalyticsUser,
+  resetAnalyticsUser,
+} from "@/lib/posthog-client"
 import { cn } from "@/lib/utils"
 
 type ClientAttachment = {
@@ -322,6 +329,30 @@ function currentUrlSearch() {
   }
 
   return window.location.search
+}
+
+function readPendingPrompt() {
+  if (typeof window === "undefined") {
+    return ""
+  }
+
+  try {
+    return window.sessionStorage.getItem(GEMINI_SPARK_PENDING_PROMPT_KEY)?.trim() || ""
+  } catch {
+    return ""
+  }
+}
+
+function clearPendingPrompt() {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.sessionStorage.removeItem(GEMINI_SPARK_PENDING_PROMPT_KEY)
+  } catch {
+    // Ignore storage failures.
+  }
 }
 
 function chatThreadPath(threadId: string, keepCurrentSearch = true) {
@@ -1298,6 +1329,27 @@ function attachmentKind(attachment: ClientAttachment) {
   return "file"
 }
 
+function attachmentAnalytics(attachments: ClientAttachment[]) {
+  const kinds = attachments.map(attachmentKind)
+
+  return {
+    attachment_count: attachments.length,
+    has_attachments: attachments.length > 0,
+    image_attachment_count: kinds.filter((kind) => kind === "image").length,
+    video_attachment_count: kinds.filter((kind) => kind === "video").length,
+  }
+}
+
+function taskArtifactAnalytics(task: AgentTask) {
+  return {
+    artifact_count: task.artifacts?.length ?? 0,
+    image_artifact_count: task.artifacts?.filter((artifact) => artifact.kind === "image").length ?? 0,
+    video_artifact_count: task.artifacts?.filter((artifact) => artifact.kind === "video").length ?? 0,
+    has_media: Boolean(task.media?.urls.length),
+    media_type: task.media?.type,
+  }
+}
+
 function latestAssistantResult(session: ChatSession) {
   return session.messages.findLast((message) => message.role === "assistant" && message.status !== undefined)
 }
@@ -1472,6 +1524,17 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     isChatNavigationPending && !bootstrapError
   const isChatInputDisabled = isThinking || !isSignedIn || !isWorkspaceReady || isChatNavigationPending
 
+  useEffect(() => {
+    if (!session?.user.id) {
+      return
+    }
+
+    identifyAnalyticsUser(session.user.id, {
+      email: session.user.email,
+      name: session.user.name,
+    })
+  }, [session?.user.id, session?.user.email, session?.user.name])
+
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     window.requestAnimationFrame(() => {
       const viewport = messagesViewportRef.current
@@ -1488,23 +1551,33 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     })
   }, [])
 
-  async function signInWithGoogle() {
+  async function signInWithGoogle(source = "chat") {
     if (isSigningIn) {
       return
     }
 
     setIsSigningIn(true)
     try {
+      captureEvent("sign_in_started", {
+        provider: "google",
+        source,
+        has_draft: Boolean(draft.trim()),
+        draft_length: draft.trim().length,
+      })
       await authClient.signIn.social({
         provider: "google",
         callbackURL: initialThreadId ? chatThreadPath(initialThreadId) : `/gemini-spark${currentUrlSearch()}`,
       })
-    } catch {
+    } catch (error) {
+      captureAnalyticsException(error, { source, action: "sign_in" })
+      captureEvent("sign_in_failed", { provider: "google", source })
       setIsSigningIn(false)
     }
   }
 
   function signOut() {
+    captureEvent("user_signed_out", { source: "chat" })
+    resetAnalyticsUser()
     setChatState(createInitialChatState())
     setDraft("")
     setAttachments([])
@@ -1539,6 +1612,13 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   async function startCheckout(plan: PaidPlan) {
     setBillingError("")
     setCheckoutPlan(plan)
+    captureEvent("subscription_checkout_started", {
+      source: "chat_billing_dialog",
+      plan,
+      interval: billingInterval,
+      price_usd: priceForInterval(plan, billingInterval),
+      credits_plan: account?.credits.plan,
+    })
 
     try {
       const response = await fetch("/api/billing/checkout", {
@@ -1557,6 +1637,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
       window.location.assign(data.url)
     } catch (error) {
+      captureAnalyticsException(error, { source: "chat_billing_dialog", action: "subscription_checkout", plan })
+      captureEvent("checkout_failed", {
+        source: "chat_billing_dialog",
+        checkout_kind: "subscription",
+        plan,
+      })
       setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
     } finally {
       setCheckoutPlan(null)
@@ -1567,11 +1653,24 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setBillingError("")
 
     if (!account || !canPurchaseCreditPack(account.credits)) {
+      captureEvent("credit_pack_checkout_blocked", {
+        source: "chat_billing_dialog",
+        pack,
+        credits_plan: account?.credits.plan,
+        subscription_status: account?.credits.subscriptionStatus,
+      })
       setBillingError("Subscribe to a paid plan before buying credit packs.")
       return
     }
 
     setCheckoutPack(pack)
+    captureEvent("credit_pack_checkout_started", {
+      source: "chat_billing_dialog",
+      pack,
+      credits: CREDIT_PACKS[pack].credits,
+      price_usd: CREDIT_PACKS[pack].priceUsd,
+      credits_plan: account.credits.plan,
+    })
 
     try {
       const response = await fetch("/api/billing/checkout", {
@@ -1590,6 +1689,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
       window.location.assign(data.url)
     } catch (error) {
+      captureAnalyticsException(error, { source: "chat_billing_dialog", action: "credit_pack_checkout", pack })
+      captureEvent("checkout_failed", {
+        source: "chat_billing_dialog",
+        checkout_kind: "credit_pack",
+        pack,
+      })
       setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
     } finally {
       setCheckoutPack(null)
@@ -1598,6 +1703,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
   async function openBillingPortal() {
     setBillingError("")
+    captureEvent("billing_portal_opened", { source: "chat_billing_dialog" })
 
     try {
       const response = await fetch("/api/billing/portal", {
@@ -1614,9 +1720,20 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
       window.location.assign(data.url)
     } catch (error) {
+      captureAnalyticsException(error, { source: "chat_billing_dialog", action: "billing_portal" })
+      captureEvent("billing_portal_failed", { source: "chat_billing_dialog" })
       setBillingError(error instanceof Error ? error.message : "Billing portal could not be opened.")
-      setBillingOpen(true)
+      openBillingDialog("billing_portal_failed")
     }
+  }
+
+  function openBillingDialog(source: string) {
+    setBillingOpen(true)
+    captureEvent("billing_dialog_opened", {
+      source,
+      credits_plan: account?.credits.plan,
+      total_credits: account?.credits.totalCredits,
+    })
   }
 
   useEffect(() => {
@@ -1638,7 +1755,9 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     const stored = loadStoredSnapshot(ownerStorageKey)
     const params = new URLSearchParams(window.location.search)
     const shouldApplyUrlPrompt = !hasLoadedUrlPromptRef.current
-    const prompt = shouldApplyUrlPrompt ? params.get("prompt")?.trim() : ""
+    const urlPrompt = shouldApplyUrlPrompt ? params.get("prompt")?.trim() || "" : ""
+    const pendingPrompt = shouldApplyUrlPrompt && !urlPrompt ? readPendingPrompt() : ""
+    const prompt = urlPrompt || pendingPrompt
     const activeThreadMessages = account?.messages || []
     let nextChatState = stored?.chatState ?? createInitialChatState(projectThreads, account?.activeThread.id, activeThreadMessages)
     let nextDraft = stored?.draft ?? ""
@@ -1653,6 +1772,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       const applied = applyUrlPromptToChatState(nextChatState, prompt)
       nextChatState = applied.chatState
       nextDraft = applied.draft
+      captureEvent("prompt_prefill_loaded", {
+        source: urlPrompt ? "url" : "landing_storage",
+        signed_in: isSignedIn,
+        prompt_length: prompt.length,
+      })
+      if (isSignedIn) {
+        clearPendingPrompt()
+      }
       if (account?.activeThread.id) {
         updateChatThreadUrl(account.activeThread.id, "replace")
       } else {
@@ -1707,21 +1834,40 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     }
 
     let cancelled = false
+    const startedAt = window.performance.now()
     setBootstrapError("")
     setIsStorageReady(false)
     setLoadedStorageKey(null)
+    captureEvent("workspace_bootstrap_started", {
+      source: "chat",
+      initial_thread_id_present: Boolean(initialThreadId),
+    })
     fetchAccountBootstrap(null, initialThreadId)
       .then((nextAccount) => {
         if (!cancelled) {
           setAccount(nextAccount)
           setActiveProjectId(nextAccount.activeProject.id)
           setBootstrapError("")
+          captureEvent("workspace_bootstrap_succeeded", {
+            source: "chat",
+            duration_ms: Math.round(window.performance.now() - startedAt),
+            workspace_status: nextAccount.workspace.status,
+            project_count: nextAccount.projects.length,
+            thread_count: nextAccount.threads.length,
+            credits_plan: nextAccount.credits.plan,
+            subscription_status: nextAccount.credits.subscriptionStatus,
+          })
         }
       })
       .catch((error) => {
         if (!cancelled) {
           setAccount(null)
           setBootstrapError(displayBrandText(error instanceof Error ? error.message : "Gemini Spark workspace initialization failed."))
+          captureAnalyticsException(error, { source: "chat", action: "workspace_bootstrap" })
+          captureEvent("workspace_bootstrap_failed", {
+            source: "chat",
+            duration_ms: Math.round(window.performance.now() - startedAt),
+          })
         }
       })
 
@@ -1864,14 +2010,18 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     }
 
     const accepted: ClientAttachment[] = []
+    let rejectedTypeCount = 0
+    let rejectedSizeCount = 0
 
     for (const file of files.slice(0, 4)) {
       if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+        rejectedTypeCount += 1
         setAttachmentError("Only image and video files are supported.")
         continue
       }
 
       if (file.size > MAX_ATTACHMENT_BYTES) {
+        rejectedSizeCount += 1
         setAttachmentError("Keep each attachment under 6 MB for this chat route.")
         continue
       }
@@ -1885,16 +2035,41 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     }
 
     setAttachments((current) => [...current, ...accepted].slice(0, 4))
+    if (accepted.length > 0) {
+      captureEvent("attachments_added", {
+        source: "chat_composer",
+        selected_count: files.length,
+        accepted_count: accepted.length,
+        rejected_type_count: rejectedTypeCount,
+        rejected_size_count: rejectedSizeCount,
+        image_count: accepted.filter((attachment) => attachmentKind(attachment) === "image").length,
+        video_count: accepted.filter((attachment) => attachmentKind(attachment) === "video").length,
+      })
+    } else if (rejectedTypeCount || rejectedSizeCount) {
+      captureEvent("attachments_rejected", {
+        source: "chat_composer",
+        selected_count: files.length,
+        rejected_type_count: rejectedTypeCount,
+        rejected_size_count: rejectedSizeCount,
+      })
+    }
     event.target.value = ""
   }
 
   function removeAttachment(id: string) {
+    const attachment = attachments.find((item) => item.id === id)
+    if (attachment) {
+      captureEvent("attachment_removed", {
+        source: "chat_composer",
+        attachment_kind: attachmentKind(attachment),
+      })
+    }
     setAttachments((current) => current.filter((attachment) => attachment.id !== id))
   }
 
   async function startNewChat() {
     if (!isSignedIn) {
-      void signInWithGoogle()
+      void signInWithGoogle("new_chat")
       return
     }
 
@@ -1904,6 +2079,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
     setIsCreatingThread(true)
     setProjectActionError("")
+    captureEvent("chat_thread_create_started", {
+      source: "sidebar",
+      project_agent_id: activeProject.id,
+    })
 
     try {
       const thread = await createThreadRequest(activeProject.id)
@@ -1926,7 +2105,17 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       setAttachments([])
       setAttachmentError("")
       updateChatThreadUrl(thread.id)
+      captureEvent("chat_thread_created", {
+        source: "sidebar",
+        project_agent_id: activeProject.id,
+        chat_thread_id: thread.id,
+      })
     } catch (error) {
+      captureAnalyticsException(error, { source: "sidebar", action: "create_thread" })
+      captureEvent("chat_thread_create_failed", {
+        source: "sidebar",
+        project_agent_id: activeProject.id,
+      })
       setProjectActionError(error instanceof Error ? error.message : "Chat could not be created.")
     } finally {
       setIsCreatingThread(false)
@@ -1935,7 +2124,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
   function openNewProjectDialog() {
     if (!isSignedIn) {
-      void signInWithGoogle()
+      void signInWithGoogle("new_project")
       return
     }
 
@@ -1947,13 +2136,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setProjectNameError("")
     setProjectNameDraft("")
     setProjectDialogOpen(true)
+    captureEvent("project_create_dialog_opened", { source: "sidebar" })
   }
 
   async function submitNewProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
     if (!isSignedIn) {
-      void signInWithGoogle()
+      void signInWithGoogle("new_project_submit")
       return
     }
 
@@ -1970,6 +2160,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setIsCreatingProject(true)
     setProjectActionError("")
     setProjectNameError("")
+    captureEvent("project_create_started", {
+      source: "sidebar",
+      name_length: projectName.length,
+    })
 
     try {
       const { project, thread } = await createProjectRequest(projectName)
@@ -2004,7 +2198,19 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       setProjectNameDraft("")
       updateChatThreadUrl(thread.id)
       void refreshAccount(project.id, thread.id).catch(() => undefined)
+      captureEvent("project_created", {
+        source: "sidebar",
+        project_agent_id: project.id,
+        chat_thread_id: thread.id,
+        workspace_status: project.status,
+        name_length: projectName.length,
+      })
     } catch (error) {
+      captureAnalyticsException(error, { source: "sidebar", action: "create_project" })
+      captureEvent("project_create_failed", {
+        source: "sidebar",
+        name_length: projectName.length,
+      })
       setProjectNameError(error instanceof Error ? error.message : "Project could not be created.")
     } finally {
       setIsCreatingProject(false)
@@ -2020,6 +2226,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setProjectActionError("")
     setBootstrapError("")
     setIsStorageReady(false)
+    captureEvent("project_selected", {
+      source: "sidebar",
+      project_agent_id: projectId,
+    })
     void refreshAccount(projectId, null)
       .then((nextAccount) => {
         updateChatThreadUrl(nextAccount.activeThread.id)
@@ -2029,6 +2239,11 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
   function selectChatThread(threadId: string) {
     setProjectActionError("")
+    captureEvent("chat_thread_selected", {
+      source: "sidebar",
+      project_agent_id: activeProject?.id,
+      chat_thread_id: threadId,
+    })
     if (!isCurrentThreadUrl(threadId)) {
       updateChatThreadUrl(threadId)
     }
@@ -2065,11 +2280,21 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setRenameDraft(target.label)
     setRenameError("")
     setProjectActionError("")
+    captureEvent("management_dialog_opened", {
+      source: "sidebar",
+      action: "rename",
+      target_type: target.type,
+    })
   }
 
   function openDeleteDialog(target: ManagementTarget) {
     setDeleteTarget(target)
     setProjectActionError("")
+    captureEvent("management_dialog_opened", {
+      source: "sidebar",
+      action: "delete",
+      target_type: target.type,
+    })
   }
 
   async function submitRename(event: FormEvent<HTMLFormElement>) {
@@ -2088,6 +2313,11 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setIsManagingItem(true)
     setRenameError("")
     setProjectActionError("")
+    captureEvent("management_rename_started", {
+      source: "sidebar",
+      target_type: renameTarget.type,
+      label_length: nextLabel.length,
+    })
 
     try {
       if (renameTarget.type === "project") {
@@ -2128,7 +2358,16 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
       setRenameTarget(null)
       setRenameDraft("")
+      captureEvent("management_renamed", {
+        source: "sidebar",
+        target_type: renameTarget.type,
+      })
     } catch (error) {
+      captureAnalyticsException(error, { source: "sidebar", action: "rename", target_type: renameTarget.type })
+      captureEvent("management_rename_failed", {
+        source: "sidebar",
+        target_type: renameTarget.type,
+      })
       setRenameError(error instanceof Error ? error.message : "Rename failed.")
     } finally {
       setIsManagingItem(false)
@@ -2143,6 +2382,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     const target = deleteTarget
     setIsManagingItem(true)
     setProjectActionError("")
+    captureEvent("management_delete_started", {
+      source: "sidebar",
+      target_type: target.type,
+    })
 
     try {
       if (target.type === "project") {
@@ -2167,7 +2410,16 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       }
 
       setDeleteTarget(null)
+      captureEvent("management_deleted", {
+        source: "sidebar",
+        target_type: target.type,
+      })
     } catch (error) {
+      captureAnalyticsException(error, { source: "sidebar", action: "delete", target_type: target.type })
+      captureEvent("management_delete_failed", {
+        source: "sidebar",
+        target_type: target.type,
+      })
       setProjectActionError(error instanceof Error ? error.message : "Delete failed.")
     } finally {
       setIsManagingItem(false)
@@ -2231,6 +2483,24 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
     const cleanDraft = draft.trim()
     if (!cleanDraft || isThinking || !isSignedIn || !isWorkspaceReady || !activeProject?.id || !activeSession?.id) {
+      const reason = !cleanDraft
+        ? "empty_draft"
+        : isThinking
+          ? "already_thinking"
+          : !isSignedIn
+            ? "signed_out"
+            : !isWorkspaceReady
+              ? "workspace_not_ready"
+              : !activeProject?.id
+                ? "missing_project"
+                : "missing_thread"
+
+      captureEvent("chat_submit_blocked", {
+        reason,
+        signed_in: isSignedIn,
+        workspace_state: workspaceState,
+        draft_length: cleanDraft.length,
+      })
       if (isSignedIn && !isWorkspaceReady) {
         void refreshAccount(activeProject?.id, activeSession?.id).catch(() => undefined)
       }
@@ -2240,7 +2510,19 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     const submittedAttachments = attachments
     const sessionId = activeSession.id
     const now = Date.now()
+    const startedAt = window.performance.now()
     const hasUserMessages = activeSession.messages.some((message) => message.role === "user")
+    const taskRequestAnalytics = {
+      project_agent_id: activeProject.id,
+      chat_thread_id: sessionId,
+      first_message: !hasUserMessages,
+      draft_length: cleanDraft.length,
+      history_message_count: messages.filter((message) => message.status !== "thinking").length,
+      credits_plan: account?.credits.plan,
+      total_credits: account?.credits.totalCredits,
+      workspace_status: account?.workspace.status,
+      ...attachmentAnalytics(submittedAttachments),
+    }
     const userMessage: ChatMessage = {
       id: createId("user"),
       role: "user",
@@ -2275,6 +2557,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setAttachments([])
     setAttachmentError("")
     setIsThinking(true)
+    captureEvent("chat_message_submitted", taskRequestAnalytics)
     let submittedTaskId = ""
 
     try {
@@ -2302,10 +2585,15 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
       if (!response.ok) {
         if (response.status === 402) {
-          setBillingOpen(true)
+          openBillingDialog("insufficient_credits")
           void refreshAccount(activeProject.id, sessionId).catch(() => undefined)
         }
 
+        captureEvent("chat_message_rejected", {
+          ...taskRequestAnalytics,
+          status_code: response.status,
+          duration_ms: Math.round(window.performance.now() - startedAt),
+        })
         throw new Error(("error" in data && data.error) || "Agent request failed.")
       }
 
@@ -2320,13 +2608,36 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       const updateFromTask = (task: AgentTask) => applyTaskToAssistantMessage(sessionId, thinkingMessage.id, task)
 
       updateFromTask(submittedTask)
+      captureEvent("agent_task_accepted", {
+        ...taskRequestAnalytics,
+        task_id: submittedTask.id,
+        task_status: submittedTask.status,
+        intent: submittedTask.intent,
+        credit_cost: submittedTask.creditCost,
+      })
       const completedTask = await waitForTaskCompletion(submittedTask.id, updateFromTask)
+      captureEvent(completedTask.status === "succeeded" ? "agent_task_completed" : "agent_task_finished_unsuccessfully", {
+        ...taskRequestAnalytics,
+        ...taskArtifactAnalytics(completedTask),
+        task_id: completedTask.id,
+        task_status: completedTask.status,
+        intent: completedTask.intent,
+        credit_cost: completedTask.creditCost,
+        duration_ms: Math.round(window.performance.now() - startedAt),
+      })
 
       if (completedTask.status !== "succeeded") {
         throw new Error(completedTask.error || completedTask.message || "Gemini Spark task did not complete.")
       }
     } catch (error) {
       const message = displayBrandText(error instanceof Error ? error.message : "Agent request failed.")
+      captureAnalyticsException(error, { source: "chat_composer", action: "agent_task", task_id: submittedTaskId || undefined })
+      captureEvent("agent_task_failed", {
+        ...taskRequestAnalytics,
+        task_id: submittedTaskId || undefined,
+        duration_ms: Math.round(window.performance.now() - startedAt),
+        error_name: error instanceof Error ? error.name : "UnknownError",
+      })
 
       setChatState((current) => {
         const nextSessions = current.sessions.map((session) =>
@@ -2708,7 +3019,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
                       {account ? `${account.credits.totalCredits} credits` : "Credits..."}
                     </span>
-                    <Button size="sm" variant="outline" rounded="full" className="hidden w-fit gap-2 bg-transparent sm:inline-flex" type="button" onClick={() => setBillingOpen(true)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      rounded="full"
+                      className="hidden w-fit gap-2 bg-transparent sm:inline-flex"
+                      type="button"
+                      onClick={() => openBillingDialog("top_bar_upgrade")}
+                    >
                       <CreditCard className="h-4 w-4" aria-hidden="true" />
                       Upgrade
                     </Button>
@@ -2720,7 +3038,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={() => void signInWithGoogle()} disabled={isAuthPending}>
+                  <Button size="sm" rounded="full" className="w-fit gap-2" type="button" onClick={() => void signInWithGoogle("top_bar")} disabled={isAuthPending}>
                     {isAuthPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <User className="h-4 w-4" aria-hidden="true" />}
                     {isAuthPending ? "Signing in" : "Sign in"}
                   </Button>
@@ -2990,7 +3308,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   {!isSignedIn && (
                     <div className="mb-3 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
                       <span>Sign in with Google to start a Gemini Spark chat.</span>
-                      <Button type="button" size="sm" rounded="full" className="w-fit gap-2" onClick={() => void signInWithGoogle()} disabled={isAuthPending}>
+                      <Button type="button" size="sm" rounded="full" className="w-fit gap-2" onClick={() => void signInWithGoogle("composer_gate")} disabled={isAuthPending}>
                         {isAuthPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                         {isAuthPending ? "Signing in" : "Sign in"}
                       </Button>
@@ -3003,7 +3321,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                         <button
                           key={prompt}
                           type="button"
-                          onClick={() => setDraft(prompt)}
+                          onClick={() => {
+                            setDraft(prompt)
+                            captureEvent("quick_prompt_selected", {
+                              source: "chat_empty_state",
+                              prompt_length: prompt.length,
+                              prompt_index: quickPrompts.indexOf(prompt),
+                            })
+                          }}
                           disabled={isChatInputDisabled}
                           className="rounded-full border border-border bg-background/70 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -3054,7 +3379,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       variant="ghost"
                       rounded="xl"
                       className="h-11 gap-2 bg-transparent"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => {
+                        captureEvent("attachment_picker_opened", { source: "chat_composer" })
+                        fileInputRef.current?.click()
+                      }}
                       disabled={isChatInputDisabled}
                     >
                       <Paperclip className="h-4 w-4" aria-hidden="true" />
@@ -3245,7 +3573,15 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
           </form>
         </DialogContent>
       </Dialog>
-      <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
+      <Dialog
+        open={billingOpen}
+        onOpenChange={(open) => {
+          setBillingOpen(open)
+          if (!open) {
+            captureEvent("billing_dialog_closed", { source: "chat_billing_dialog" })
+          }
+        }}
+      >
         <DialogContent className="max-h-[min(90dvh,840px)] w-[calc(100vw-32px)] max-w-none gap-0 overflow-hidden border-white/10 bg-[oklch(0.085_0.006_250)] p-0 shadow-[0_28px_110px_rgb(0_0_0_/_0.72)] sm:w-[min(1120px,calc(100vw-48px))] sm:max-w-none">
           <div className="max-h-[min(90dvh,840px)] overflow-y-auto">
             <div className="border-b border-white/10 bg-[linear-gradient(135deg,oklch(0.12_0.012_250),oklch(0.075_0.006_250)_70%)] px-5 pb-5 pt-6 sm:px-7 sm:pb-6 sm:pt-7">
@@ -3289,7 +3625,13 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   <button
                     key={interval}
                     type="button"
-                    onClick={() => setBillingInterval(interval)}
+                    onClick={() => {
+                      setBillingInterval(interval)
+                      captureEvent("billing_interval_selected", {
+                        source: "chat_billing_dialog",
+                        interval,
+                      })
+                    }}
                     className={cn(
                       "inline-flex min-w-24 items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition",
                       billingInterval === interval
