@@ -1,6 +1,7 @@
 "use client"
 
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -29,7 +30,6 @@ import {
   Send,
   Server,
   ShieldCheck,
-  Sparkles,
   Terminal,
   Trash2,
   User,
@@ -251,6 +251,7 @@ const MAX_PERSISTED_SESSIONS = 30
 const MAX_PERSISTED_MESSAGES = 120
 const MAX_PERSISTED_EVENTS = 80
 const TASK_EVENT_POLL_FALLBACK_MS = 5_000
+const AGENT_AVATAR_SRC = "/gemini-spark-avatar.png"
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY_PREFIX = "gemini-spark:chat-sessions:v2"
 const SESSION_PANEL_COLLAPSED_KEY = "gemini-spark:session-panel-collapsed:v1"
@@ -259,6 +260,39 @@ const SIDEBAR_EXPANDED_THREADS_KEY = "gemini-spark:sidebar-expanded-threads:v1"
 const SIDEBAR_VISIBLE_THREADS_DEFAULT = 5
 const CHAT_STORAGE_VERSION = 2
 const AGENT_API_BASE_PATH = "/api/gemini-spark"
+
+function GeminiSparkAvatar({
+  className,
+  imageSize = 16,
+  isThinking = false,
+}: {
+  className?: string
+  imageSize?: number
+  isThinking?: boolean
+}) {
+  return (
+    <span
+      className={cn(
+        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-primary/25 bg-background",
+        className,
+      )}
+      aria-hidden="true"
+    >
+      <Image
+        src={AGENT_AVATAR_SRC}
+        alt=""
+        width={imageSize}
+        height={imageSize}
+        className={cn("h-full w-full object-cover", isThinking && "opacity-45")}
+      />
+      {isThinking && (
+        <span className="absolute inset-0 flex items-center justify-center bg-background/40">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
+        </span>
+      )}
+    </span>
+  )
+}
 const WELCOME_MESSAGE =
   "Sign in to initialize your Gemini Spark workspace, then send text, image, or video tasks through the agent."
 const EMPTY_THREADS: ChatThread[] = []
@@ -3294,9 +3328,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   isSessionPanelCollapsed && "lg:hidden",
                 )}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-                  <Sparkles className="h-4 w-4" aria-hidden="true" />
-                </span>
+                <GeminiSparkAvatar className="h-8 w-8" />
                 <span className="truncate text-sm font-semibold text-foreground">Gemini Spark</span>
               </Link>
               <Button
@@ -3408,9 +3440,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col gap-0 border-r border-border/70 bg-background/95 p-0 backdrop-blur-xl sm:max-w-sm">
                     <SheetHeader className="border-b border-border/70 px-4 py-3">
                       <SheetTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-                          <Sparkles className="h-4 w-4" aria-hidden="true" />
-                        </span>
+                        <GeminiSparkAvatar className="h-7 w-7" />
                         Gemini Spark
                       </SheetTitle>
                       <SheetDescription className="sr-only">Projects and chats navigation</SheetDescription>
@@ -3461,9 +3491,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     )}
                   </SheetContent>
                 </Sheet>
-                <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary sm:flex">
-                  <Bot className="h-4 w-4" aria-hidden="true" />
-                </span>
+                <GeminiSparkAvatar className="hidden h-9 w-9 sm:flex" imageSize={18} />
                 <div className="min-w-0 flex-1">
                   <p className="hidden text-xs text-muted-foreground sm:block">Project agent</p>
                   <h1 className="truncate text-sm font-semibold text-foreground sm:text-sm">
@@ -3581,9 +3609,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     </div>
                   ) : !hasConversationStarted && (
                     <div className="mx-auto max-w-2xl text-center">
-                      <span className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-                        <Sparkles className="h-5 w-5" aria-hidden="true" />
-                      </span>
+                      <GeminiSparkAvatar className="mx-auto mb-5 h-12 w-12 rounded-2xl" imageSize={24} />
                       <p className="text-2xl font-semibold tracking-display text-foreground sm:text-3xl">
                         Ready when you are
                       </p>
@@ -3614,18 +3640,10 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                         )}
                       >
                         {!isUser && (
-                          <span
-                            className={cn(
-                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary",
-                              !shouldCenterMessageRow && "mt-1",
-                            )}
-                          >
-                            {message.status === "thinking" ? (
-                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                            ) : (
-                              <Sparkles className="h-4 w-4" aria-hidden="true" />
-                            )}
-                          </span>
+                          <GeminiSparkAvatar
+                            className={cn("h-8 w-8", !shouldCenterMessageRow && "mt-1")}
+                            isThinking={message.status === "thinking"}
+                          />
                         )}
                         <div
                           className={cn(
