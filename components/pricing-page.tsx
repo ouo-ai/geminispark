@@ -79,7 +79,7 @@ function creditEquivalents(credits: number) {
 export function PricingPage() {
   const { data: session, isPending: isSessionPending } = authClient.useSession()
   const [isSigningIn, setIsSigningIn] = useState(false)
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>("year")
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("month")
   const [pendingCheckout, setPendingCheckout] = useState<string | null>(null)
   const [billingError, setBillingError] = useState("")
   const [billingStatus, setBillingStatus] = useState<"success" | "cancel" | "">("")
@@ -314,10 +314,10 @@ export function PricingPage() {
         <div className="mt-10 flex flex-col gap-4 border-y border-border py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-foreground">Paid plans</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Annual billing is selected by default.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Monthly billing is selected by default.</p>
           </div>
           <div className="flex w-fit rounded-full border border-border bg-background/70 p-1">
-            {(["year", "month"] as const).map((interval) => (
+            {(["month", "year"] as const).map((interval) => (
               <button
                 key={interval}
                 type="button"

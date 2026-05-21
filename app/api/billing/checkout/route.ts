@@ -215,7 +215,7 @@ export async function POST(request: Request) {
 
     const { stripe, customerId } = await getCheckoutCustomer()
     const plan = parseCheckoutPlan(body.plan)
-    const interval = parseCheckoutInterval(body.interval || "year")
+    const interval = parseCheckoutInterval(body.interval || "month")
     const priceId = await getStripePriceId(plan, interval)
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",

@@ -1470,7 +1470,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const [account, setAccount] = useState<AccountBootstrap | null>(null)
   const [bootstrapError, setBootstrapError] = useState("")
   const [billingOpen, setBillingOpen] = useState(false)
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>("year")
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("month")
   const [billingError, setBillingError] = useState("")
   const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
   const [checkoutPack, setCheckoutPack] = useState<CreditPack | null>(null)
@@ -3617,11 +3617,11 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
               <div>
                 <p className="text-sm font-semibold text-foreground">Choose a plan</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {billingInterval === "year" ? "Annual credits are granted upfront." : "Monthly credits refresh every billing period."}
+                  {billingInterval === "year" ? "Annual credits are granted upfront." : "Monthly billing is selected by default."}
                 </p>
               </div>
               <div className="flex w-fit rounded-full border border-white/10 bg-background/60 p-1 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)]">
-                {(["year", "month"] as const).map((interval) => (
+                {(["month", "year"] as const).map((interval) => (
                   <button
                     key={interval}
                     type="button"
