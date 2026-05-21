@@ -118,7 +118,7 @@ export function Hero() {
     })
   }
 
-  function trackHeroAction(action: "chat_inline" | "chat_primary" | "how_it_works") {
+  function trackHeroAction(action: "chat_inline" | "chat_primary" | "generation_studio" | "how_it_works") {
     if (action !== "how_it_works") {
       persistPromptForChat()
     }
@@ -245,6 +245,12 @@ export function Hero() {
               <Link href="/gemini-spark" onClick={() => trackHeroAction("chat_primary")}>
                 Open Gemini Spark Chat
                 <ArrowRight className="w-4 h-4" />
+              </Link>
+            </Button>
+            <Button variant="secondary" size="xl" rounded="full" className="gap-2 w-full sm:w-auto" asChild>
+              <Link href="/gemini-omni" onClick={() => trackHeroAction("generation_studio")}>
+                <Sparkles className="w-4 h-4" />
+                Gemini Omni
               </Link>
             </Button>
             <Button variant="outline" size="xl" rounded="full" className="gap-2 bg-transparent w-full sm:w-auto" asChild>
