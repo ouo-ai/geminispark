@@ -1,19 +1,31 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import {
+  ArrowRight,
+  Check,
   Download,
   History,
   ImageIcon,
   Loader2,
   Play,
   Sparkles,
+  Upload,
   Wand2,
   Zap,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -24,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { BILLING_PLANS, type PaidPlan } from "@/lib/billing-config"
 import { cn } from "@/lib/utils"
 
 type Mode = "video" | "image" | "image-edit"
@@ -168,6 +181,16 @@ export function GeminiOmniStudio() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const [paywallOpen, setPaywallOpen] = useState(false)
+  const [paywallInfo, setPaywallInfo] = useState<{ required: number; available: number } | null>(null)
+  const [paywallInterval, setPaywallInterval] = useState<"month" | "year">("month")
+  const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
+  const [paywallError, setPaywallError] = useState<string | null>(null)
+
+  const [videoUploading, setVideoUploading] = useState(false)
+  const [editUploading, setEditUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current)
@@ -310,9 +333,12 @@ export function GeminiOmniStudio() {
         | null
       if (!response.ok || !body) {
         if (response.status === 402 && body?.code === "PAYMENT_REQUIRED") {
-          setSubmitError(
-            `Not enough credits — needs ${body.requiredCredits ?? creditCost}, you have ${body.availableCredits ?? 0}. Top up on the pricing page.`,
-          )
+          setPaywallInfo({
+            required: body.requiredCredits ?? creditCost,
+            available: body.availableCredits ?? 0,
+          })
+          setPaywallError(null)
+          setPaywallOpen(true)
         } else {
           setSubmitError(body?.error || "Submission failed. Please try again.")
         }
@@ -354,6 +380,86 @@ export function GeminiOmniStudio() {
       }
     },
     [stopPolling, startPolling],
+  )
+
+  const uploadFiles = useCallback(
+    async (files: FileList | File[], target: "video" | "edit") => {
+      const list = Array.from(files).filter((f) => f.type.startsWith("image/"))
+      if (list.length === 0) {
+        setUploadError("Only image files are supported.")
+        return
+      }
+      setUploadError(null)
+      const setLoading = target === "video" ? setVideoUploading : setEditUploading
+      const setText = target === "video" ? setVideoRefUrlsText : setEditSourceUrlsText
+      setLoading(true)
+      try {
+        const uploaded: string[] = []
+        for (const file of list) {
+          const signResponse = await fetch("/api/uploads/image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filename: file.name,
+              contentType: file.type,
+              size: file.size,
+            }),
+          })
+          const sign = (await signResponse.json().catch(() => null)) as
+            | { url?: string; publicUrl?: string; headers?: Record<string, string>; error?: string }
+            | null
+          if (!signResponse.ok || !sign?.url || !sign.publicUrl) {
+            throw new Error(sign?.error || `Failed to sign ${file.name}.`)
+          }
+
+          const putResponse = await fetch(sign.url, {
+            method: "PUT",
+            headers: sign.headers || { "Content-Type": file.type },
+            body: file,
+          })
+          if (!putResponse.ok) {
+            const text = await putResponse.text().catch(() => "")
+            throw new Error(
+              `R2 rejected ${file.name} (${putResponse.status}). ${text.slice(0, 200) || "Check bucket CORS and credentials."}`,
+            )
+          }
+
+          uploaded.push(sign.publicUrl)
+        }
+        setText((prev) => {
+          const lines = prev.split(/\r?\n/).filter(Boolean)
+          return [...lines, ...uploaded].join("\n")
+        })
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : "Upload failed.")
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  const startCheckout = useCallback(
+    async (plan: PaidPlan) => {
+      setPaywallError(null)
+      setCheckoutPlan(plan)
+      try {
+        const response = await fetch("/api/billing/checkout", {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ checkoutKind: "subscription", plan, interval: paywallInterval }),
+        })
+        const data = (await response.json().catch(() => ({}))) as { url?: string; error?: string }
+        if (!response.ok || !data.url) {
+          throw new Error(data.error || "Checkout could not be started.")
+        }
+        window.location.assign(data.url)
+      } catch (error) {
+        setPaywallError(error instanceof Error ? error.message : "Checkout could not be started.")
+        setCheckoutPlan(null)
+      }
+    },
+    [paywallInterval],
   )
 
   const currentVideoUrls = mediaUrls(currentTask, "video")
@@ -553,9 +659,12 @@ export function GeminiOmniStudio() {
                         placeholder={"https://...\nhttps://...\n(one URL per line)"}
                         className="min-h-20 resize-y bg-background/60 font-mono text-xs"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Only public https:// URLs are accepted for now.
-                      </p>
+                      <UploadButton
+                        loading={videoUploading}
+                        max={7}
+                        current={parsedRefUrls.length}
+                        onPick={(files) => uploadFiles(files, "video")}
+                      />
                     </div>
                   </details>
                 </>
@@ -607,9 +716,12 @@ export function GeminiOmniStudio() {
                         placeholder={"https://...\nhttps://...\n(one URL per line, 1 to 10)"}
                         className="min-h-20 resize-y bg-background/60 font-mono text-xs"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Required for image-to-image. Public https:// URLs only.
-                      </p>
+                      <UploadButton
+                        loading={editUploading}
+                        max={10}
+                        current={parsedEditUrls.length}
+                        onPick={(files) => uploadFiles(files, "edit")}
+                      />
                     </div>
                   )}
                 </>
@@ -646,6 +758,11 @@ export function GeminiOmniStudio() {
               {submitError && (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
                   {submitError}
+                </div>
+              )}
+              {uploadError && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+                  {uploadError}
                 </div>
               )}
             </div>
@@ -804,7 +921,200 @@ export function GeminiOmniStudio() {
           )}
         </div>
       </div>
+
+      <PaywallDialog
+        open={paywallOpen}
+        onOpenChange={(open) => {
+          setPaywallOpen(open)
+          if (!open) {
+            setPaywallError(null)
+            setCheckoutPlan(null)
+          }
+        }}
+        info={paywallInfo}
+        interval={paywallInterval}
+        onIntervalChange={setPaywallInterval}
+        onCheckout={startCheckout}
+        checkoutPlan={checkoutPlan}
+        error={paywallError}
+      />
     </section>
+  )
+}
+
+function PaywallDialog({
+  open,
+  onOpenChange,
+  info,
+  interval,
+  onIntervalChange,
+  onCheckout,
+  checkoutPlan,
+  error,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  info: { required: number; available: number } | null
+  interval: "month" | "year"
+  onIntervalChange: (interval: "month" | "year") => void
+  onCheckout: (plan: PaidPlan) => void
+  checkoutPlan: PaidPlan | null
+  error: string | null
+}) {
+  const plans: PaidPlan[] = ["STARTUP", "PRO"]
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="overflow-hidden border-border/60 bg-card p-0 sm:max-w-2xl">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10"
+          style={{
+            background:
+              "radial-gradient(40rem 24rem at 50% -20%, color-mix(in oklch, var(--primary) 18%, transparent), transparent 60%)",
+          }}
+        />
+        <div className="px-6 pt-6 sm:px-8 sm:pt-8">
+          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/25 bg-primary/[0.08] px-3 py-1 text-xs font-medium text-primary">
+            <Zap className="h-3.5 w-3.5" />
+            Out of credits
+          </div>
+          <DialogHeader className="mt-4 text-left">
+            <DialogTitle className="text-2xl font-semibold tracking-tight">
+              Top up to keep generating
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              {info ? (
+                <>
+                  This run needs{" "}
+                  <span className="font-medium text-foreground">{info.required}</span> credits — you currently have{" "}
+                  <span className="font-medium text-foreground">{info.available}</span>. One balance powers chat, image, and video.
+                </>
+              ) : (
+                "One balance powers chat, image, and video."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="mt-5 flex items-center justify-between gap-3 px-6 sm:px-8">
+          <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Billing cycle
+          </span>
+          <div className="inline-flex rounded-full border border-border bg-background/60 p-1">
+            {(["month", "year"] as const).map((option) => {
+              const active = interval === option
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onIntervalChange(option)}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    active
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  aria-pressed={active}
+                >
+                  {option === "year" ? "Yearly · save 17%" : "Monthly"}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 px-6 pb-6 sm:grid-cols-2 sm:px-8 sm:pb-8">
+          {plans.map((plan) => {
+            const details = BILLING_PLANS[plan]
+            const monthlyPrice = details.monthlyPriceUsd
+            const yearlyPrice = details.yearlyPriceUsd
+            const displayPrice = interval === "year" ? Math.round(yearlyPrice / 12) : monthlyPrice
+            const cycleCredits = interval === "year" ? details.monthlyCredits * 12 : details.monthlyCredits
+            const cycleLabel = interval === "year" ? "credits/year" : "credits/month"
+            const featured = plan === "STARTUP"
+            const isLoading = checkoutPlan === plan
+            return (
+              <div
+                key={plan}
+                className={cn(
+                  "relative flex flex-col gap-3 rounded-xl border p-4",
+                  featured
+                    ? "border-primary/40 bg-gradient-to-br from-primary/10 via-card to-card"
+                    : "border-border bg-card",
+                )}
+              >
+                {featured && (
+                  <span className="absolute -top-2 right-3 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
+                    Most popular
+                  </span>
+                )}
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">{details.label}</h3>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className="text-2xl font-bold text-foreground">${displayPrice}</span>
+                    <span className="text-xs text-muted-foreground">/mo</span>
+                    {interval === "year" && (
+                      <span className="ml-1 text-[10px] text-muted-foreground">billed yearly</span>
+                    )}
+                  </div>
+                </div>
+                <ul className="space-y-1.5 text-xs text-muted-foreground">
+                  <li className="flex items-center gap-1.5">
+                    <Check className="h-3.5 w-3.5 text-primary" />
+                    <span>
+                      <span className="font-medium text-foreground">{cycleCredits.toLocaleString()}</span> {cycleLabel}
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <Check className="h-3.5 w-3.5 text-primary" />
+                    <span>Chat, image, and video — one balance</span>
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <Check className="h-3.5 w-3.5 text-primary" />
+                    <span>Auto-refund on failed runs</span>
+                  </li>
+                </ul>
+                <Button
+                  onClick={() => onCheckout(plan)}
+                  disabled={isLoading || checkoutPlan !== null}
+                  variant={featured ? "default" : "secondary"}
+                  className="mt-1 w-full"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Redirecting…
+                    </>
+                  ) : (
+                    <>
+                      Upgrade to {details.label}
+                      <ArrowRight className="ml-1 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+
+        {error && (
+          <div className="mx-6 mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 sm:mx-8">
+            {error}
+          </div>
+        )}
+
+        <DialogFooter className="border-t border-border/60 bg-background/40 px-6 py-3 sm:px-8">
+          <Link
+            href="/pricing"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+            onClick={() => onOpenChange(false)}
+          >
+            View full pricing &amp; credit packs
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -813,6 +1123,55 @@ function SettingField({ label, children }: { label: string; children: React.Reac
     <div className="space-y-1.5">
       <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
       {children}
+    </div>
+  )
+}
+
+function UploadButton({
+  loading,
+  max,
+  current,
+  onPick,
+}: {
+  loading: boolean
+  max: number
+  current: number
+  onPick: (files: FileList) => void
+}) {
+  const remaining = Math.max(0, max - current)
+  const disabled = loading || remaining === 0
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <label
+        className={cn(
+          "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/60 px-2.5 py-1.5 font-medium text-foreground transition hover:border-primary/50 hover:text-primary",
+          disabled && "cursor-not-allowed opacity-60 hover:border-border hover:text-foreground",
+        )}
+      >
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+        {loading ? "Uploading…" : "Upload images"}
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          disabled={disabled}
+          onChange={(event) => {
+            const files = event.target.files
+            if (files && files.length > 0) {
+              const slice = Array.from(files).slice(0, remaining)
+              const dt = new DataTransfer()
+              slice.forEach((file) => dt.items.add(file))
+              onPick(dt.files)
+            }
+            event.target.value = ""
+          }}
+          className="hidden"
+        />
+      </label>
+      <span className="text-muted-foreground">
+        {remaining > 0 ? `${remaining} slot${remaining === 1 ? "" : "s"} left` : "Limit reached"}
+        {" · PNG / JPG / WEBP / GIF · max 20MB each"}
+      </span>
     </div>
   )
 }
