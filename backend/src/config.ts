@@ -39,6 +39,9 @@ export const config = {
   openClawGatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || "",
   openClawSyncIntervalMs: numberEnv("OPENCLAW_SYNC_INTERVAL_MS", 5_000),
   openClawSyncBatchSize: numberEnv("OPENCLAW_SYNC_BATCH_SIZE", 25),
+  kieAiApiKey: process.env.KIE_AI_API_KEY || "",
+  kieAiBaseUrl: (process.env.KIE_AI_BASE_URL || "https://api.kie.ai").replace(/\/$/, ""),
+  kieAiOmniModel: process.env.KIE_AI_GEMINI_OMNI_MODEL || "gemini-omni-video",
 }
 
 export function requireConfig(value: string, message: string) {

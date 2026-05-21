@@ -27,6 +27,7 @@ import {
   BookOpen,
   Bot,
   ClipboardList,
+  Video,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { captureEvent } from "@/lib/posthog-client"
@@ -40,6 +41,7 @@ const navLinks = [
 
 const workflowItems = [
   { href: "/gemini-spark", label: "Gemini Spark Chat", icon: Sparkles },
+  { href: "/gemini-omni", label: "Generation Studio", icon: Video },
   { href: "/ai-agent-builder", label: "Agent Builder", icon: Bot },
   { href: "/ai-agent-workflow", label: "Agent Workflow", icon: ClipboardList },
   { href: "/ai-agent-for-product-teams", label: "Product Agents", icon: Rocket },
@@ -52,6 +54,7 @@ const toolsMenu = {
       items: [
         { href: "/ai-agent", label: "AI Agent", icon: Lightbulb },
         { href: "/ai-agent-builder", label: "Agent Builder", icon: FileText },
+        { href: "/gemini-omni", label: "Generation Studio", icon: Video },
       ],
     },
     {

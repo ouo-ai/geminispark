@@ -5,6 +5,13 @@ import { z } from "zod"
 import { PaymentRequiredError } from "./billing.js"
 import { config } from "./config.js"
 import { disconnectPrisma, prisma } from "./db.js"
+import {
+  GeminiOmniInputError,
+  GeminiOmniRemoteError,
+  getGeminiOmniHistory,
+  refreshGeminiOmniTask,
+  submitGeminiOmni,
+} from "./gemini-omni.js"
 import { registerMcpRoutes } from "./mcp.js"
 import { ensureOpenClawWorkspace } from "./providers.js"
 import { TaskScopeError } from "./projects.js"
@@ -46,6 +53,20 @@ const workspaceBodySchema = z
     projectAgentId: z.string().min(1),
   })
   .optional()
+
+const geminiOmniGenerateBodySchema = z.object({
+  mode: z.enum(["video", "image", "image-edit"]).default("video"),
+  prompt: z.string().min(1).max(5000),
+  duration: z.enum(["4", "6", "8", "10"]).optional(),
+  aspectRatio: z.enum(["16:9", "9:16"]).optional(),
+  resolution: z.enum(["720p", "1080p", "4k"]).optional(),
+  imageSize: z
+    .enum(["1:1", "9:16", "16:9", "3:4", "4:3", "3:2", "2:3", "5:4", "4:5", "21:9", "auto"])
+    .optional(),
+  outputFormat: z.enum(["png", "jpeg"]).optional(),
+  imageUrls: z.array(z.string()).max(10).optional(),
+  seed: z.number().int().min(0).max(2_147_483_647).optional(),
+})
 
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) {
@@ -342,6 +363,83 @@ export function buildServer() {
       }, 2_000)
     },
   )
+
+  app.post("/gemini-omni/generate", async (request, reply) => {
+    const unauthorized = requireAgentApiAuthorization(request, reply)
+    if (unauthorized) {
+      return unauthorized
+    }
+
+    const parsed = geminiOmniGenerateBodySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: "Invalid generation request.",
+        details: parsed.error.flatten(),
+      })
+    }
+
+    const ownerId = ownerFromRequest(request)
+    if (!ownerId) {
+      return sendOwnerIdRequired(reply)
+    }
+
+    try {
+      const { taskId } = await submitGeminiOmni({ ...parsed.data, userId: ownerId })
+      const task = await refreshGeminiOmniTask(taskId, ownerId)
+      return reply.code(202).send(task)
+    } catch (error) {
+      if (error instanceof PaymentRequiredError) {
+        return reply.code(402).send({
+          error: error.message,
+          code: "PAYMENT_REQUIRED",
+          requiredCredits: error.details.requiredCredits,
+          availableCredits: error.details.availableCredits,
+        })
+      }
+      if (error instanceof GeminiOmniInputError) {
+        return reply.code(400).send({ error: error.message })
+      }
+      if (error instanceof GeminiOmniRemoteError) {
+        return reply.code(502).send({ error: error.message })
+      }
+      const message = error instanceof Error ? error.message : "Failed to create generation task."
+      app.log.error({ error: message }, "gemini-omni generate failed")
+      return reply.code(500).send({ error: message })
+    }
+  })
+
+  app.get("/gemini-omni/history", async (request, reply) => {
+    const unauthorized = requireAgentApiAuthorization(request, reply)
+    if (unauthorized) {
+      return unauthorized
+    }
+
+    const ownerId = ownerFromRequest(request)
+    if (!ownerId) {
+      return sendOwnerIdRequired(reply)
+    }
+
+    const items = await getGeminiOmniHistory(ownerId, 20)
+    return { items }
+  })
+
+  app.get<{ Params: { taskId: string } }>("/gemini-omni/:taskId", async (request, reply) => {
+    const unauthorized = requireAgentApiAuthorization(request, reply)
+    if (unauthorized) {
+      return unauthorized
+    }
+
+    const ownerId = ownerFromRequest(request)
+    if (!ownerId) {
+      return sendOwnerIdRequired(reply)
+    }
+
+    const task = await refreshGeminiOmniTask(request.params.taskId, ownerId)
+    if (!task) {
+      return reply.code(404).send({ error: "Task not found." })
+    }
+    return task
+  })
 
   registerMcpRoutes(app)
 
