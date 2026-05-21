@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth"
-import { createChatThread } from "@/lib/project-agents"
+import { createChatThread, listChatThreads } from "@/lib/project-agents"
 
 import { jsonError } from "../../../tasks/proxy"
 
@@ -10,6 +10,21 @@ type RouteContext = {
   params: Promise<{
     projectAgentId: string
   }>
+}
+
+export async function GET(request: Request, context: RouteContext) {
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session?.user.id) {
+    return jsonError("Sign in to view Gemini Spark chats.", 401)
+  }
+
+  const { projectAgentId } = await context.params
+  const threads = await listChatThreads(session.user.id, projectAgentId)
+  if (threads === null) {
+    return jsonError("Project not found.", 404)
+  }
+
+  return Response.json({ threads })
 }
 
 export async function POST(request: Request, context: RouteContext) {

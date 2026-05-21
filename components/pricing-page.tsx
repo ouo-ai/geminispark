@@ -7,12 +7,9 @@ import {
   CalendarDays,
   CheckCircle2,
   CreditCard,
-  ImageIcon,
   Loader2,
-  MessageSquare,
   ShieldCheck,
   Sparkles,
-  Video,
   WalletCards,
   Zap,
 } from "lucide-react"
@@ -38,12 +35,6 @@ const moneyFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 0,
 })
-
-const usageCosts = [
-  { label: "Chat", cost: CREDIT_COSTS.text, icon: MessageSquare },
-  { label: "Image", cost: CREDIT_COSTS.image, icon: ImageIcon },
-  { label: "Video", cost: CREDIT_COSTS["text-to-video"], icon: Video },
-]
 
 type BillingCreditStatus = {
   plan: string
@@ -274,23 +265,14 @@ export function PricingPage() {
           </div>
 
           <div className="rounded-lg border border-border bg-background/70 p-4 backdrop-blur-xl">
-            <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-foreground">Credit meter</p>
-                <p className="mt-1 text-xs text-muted-foreground">One currency across the workspace.</p>
+                <p className="text-sm font-semibold text-foreground">Monthly checkout is selected</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Upgrade when you are ready to keep building with Gemini Spark.
+                </p>
               </div>
               <WalletCards className="h-5 w-5 text-primary" aria-hidden="true" />
-            </div>
-            <div className="mt-4 grid gap-2">
-              {usageCosts.map((item) => (
-                <div key={item.label} className="flex items-center justify-between rounded-md border border-border/70 bg-card/60 px-3 py-2">
-                  <span className="inline-flex items-center gap-2 text-sm text-foreground">
-                    <item.icon className="h-4 w-4 text-primary" aria-hidden="true" />
-                    {item.label}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{item.cost} credit{item.cost > 1 ? "s" : ""}</span>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -446,7 +428,7 @@ export function PricingPage() {
           })}
         </div>
 
-        <div className="mt-14 grid gap-4 border-t border-border pt-8 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div id="credit-packs" className="mt-14 grid gap-4 scroll-mt-24 border-t border-border pt-8 lg:grid-cols-[280px_minmax(0,1fr)]">
           <div>
             <div className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
               <Zap className="h-5 w-5" aria-hidden="true" />

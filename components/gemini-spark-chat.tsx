@@ -6,14 +6,21 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
   AlertTriangle,
+  ArrowRight,
   Bot,
   CheckCircle2,
+  Clock,
   CreditCard,
   ImageIcon,
+  Layers,
   Loader2,
+  Lock,
+  LogOut,
+  Menu,
   MessageSquare,
   MoreHorizontal,
   Paperclip,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Pencil,
@@ -29,6 +36,7 @@ import {
   Video,
   Wallet,
   X,
+  Zap,
 } from "lucide-react"
 
 import {
@@ -45,6 +53,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -57,19 +66,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Kbd } from "@/components/ui/kbd"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   BILLING_PLANS,
-  canPurchaseCreditPack,
   CREDIT_COSTS,
-  CREDIT_PACKS,
   type BillingInterval,
-  type CreditPack,
   type PaidPlan,
 } from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
+import { formatRelativeTime } from "@/lib/format-relative-time"
 import { GEMINI_SPARK_PENDING_PROMPT_KEY } from "@/lib/gemini-spark-prompt-transfer"
 import {
   captureAnalyticsException,
@@ -237,6 +252,9 @@ const MAX_PERSISTED_EVENTS = 80
 const AGENT_BRAND = "Gemini Spark"
 const CHAT_STORAGE_KEY_PREFIX = "gemini-spark:chat-sessions:v2"
 const SESSION_PANEL_COLLAPSED_KEY = "gemini-spark:session-panel-collapsed:v1"
+const SIDEBAR_EXPANDED_PROJECTS_KEY = "gemini-spark:sidebar-expanded-projects:v1"
+const SIDEBAR_EXPANDED_THREADS_KEY = "gemini-spark:sidebar-expanded-threads:v1"
+const SIDEBAR_VISIBLE_THREADS_DEFAULT = 5
 const CHAT_STORAGE_VERSION = 2
 const AGENT_API_BASE_PATH = "/api/gemini-spark"
 const WELCOME_MESSAGE =
@@ -250,18 +268,11 @@ const quickPrompts = [
 ]
 
 const paidPlanOrder = ["STARTUP", "PRO"] as const
-const creditPackOrder = ["BOOST_50", "STUDIO_150", "LAUNCH_400"] as const
 const moneyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   maximumFractionDigits: 0,
 })
-const billingUsageCosts = [
-  { label: "Chat", cost: CREDIT_COSTS.text, icon: MessageSquare },
-  { label: "Image", cost: CREDIT_COSTS.image, icon: ImageIcon },
-  { label: "Video", cost: CREDIT_COSTS["text-to-video"], icon: Video },
-]
-
 const thinkingLines = [
   "Connecting to Gemini Spark...",
   "Reading the workspace context...",
@@ -293,14 +304,6 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function creditEquivalents(credits: number) {
-  return {
-    chats: Math.floor(credits / CREDIT_COSTS.text),
-    images: Math.floor(credits / CREDIT_COSTS.image),
-    videos: Math.floor(credits / CREDIT_COSTS["text-to-video"]),
-  }
-}
-
 function formatMoney(value: number) {
   return moneyFormatter.format(value)
 }
@@ -313,10 +316,6 @@ function yearlySavings(plan: PaidPlan) {
 function priceForInterval(plan: PaidPlan, interval: BillingInterval) {
   const details = BILLING_PLANS[plan]
   return interval === "year" ? details.yearlyPriceUsd : details.monthlyPriceUsd
-}
-
-function perCreditLabel(credits: number, priceUsd: number) {
-  return `$${(priceUsd / credits).toFixed(2)} / credit`
 }
 
 function agentApiUrl(path: string) {
@@ -413,6 +412,44 @@ function readSessionPanelCollapsed() {
   }
 
   return window.localStorage.getItem(SESSION_PANEL_COLLAPSED_KEY) === "true"
+}
+
+function readStringSetFromStorage(key: string): Set<string> {
+  if (typeof window === "undefined") {
+    return new Set()
+  }
+
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) {
+      return new Set()
+    }
+
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((item): item is string => typeof item === "string"))
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+
+  return new Set()
+}
+
+function writeStringSetToStorage(key: string, value: Set<string>) {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(Array.from(value)))
+  } catch {
+    // storage may be unavailable; ignore
+  }
+}
+
+function projectActivityTimestamp(project: ProjectAgent) {
+  return project.updatedAt || project.createdAt
 }
 
 async function readJsonBody<T extends object>(response: Response, fallbackError: string): Promise<T & { error?: string }> {
@@ -1354,29 +1391,6 @@ function latestAssistantResult(session: ChatSession) {
   return session.messages.findLast((message) => message.role === "assistant" && message.status !== undefined)
 }
 
-function sessionSubtitle(session: ChatSession) {
-  const latestResult = latestAssistantResult(session)
-  const userTurns = session.messages.filter((message) => message.role === "user").length
-
-  if (latestResult?.status === "thinking") {
-    return "Thinking..."
-  }
-
-  if (latestResult?.status === "error") {
-    return "Needs attention"
-  }
-
-  if (latestResult?.provider) {
-    return AGENT_BRAND
-  }
-
-  if (userTurns > 0) {
-    return `${userTurns} turn${userTurns === 1 ? "" : "s"}`
-  }
-
-  return "Ready"
-}
-
 function sessionIcon(session: ChatSession) {
   const latestResult = latestAssistantResult(session)
 
@@ -1463,6 +1477,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const [draft, setDraft] = useState("")
   const [attachments, setAttachments] = useState<ClientAttachment[]>([])
   const [isSessionPanelCollapsed, setIsSessionPanelCollapsed] = useState(readSessionPanelCollapsed)
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
   const [isStorageReady, setIsStorageReady] = useState(false)
   const [thinkingIndex, setThinkingIndex] = useState(0)
@@ -1471,10 +1486,19 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const [bootstrapError, setBootstrapError] = useState("")
   const [billingOpen, setBillingOpen] = useState(false)
   const [billingInterval, setBillingInterval] = useState<BillingInterval>("month")
+  const [billingEntrySource, setBillingEntrySource] = useState("chat_billing_dialog")
   const [billingError, setBillingError] = useState("")
   const [checkoutPlan, setCheckoutPlan] = useState<PaidPlan | null>(null)
-  const [checkoutPack, setCheckoutPack] = useState<CreditPack | null>(null)
+  const [paymentPromptDismissed, setPaymentPromptDismissed] = useState(false)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() =>
+    readStringSetFromStorage(SIDEBAR_EXPANDED_PROJECTS_KEY),
+  )
+  const [expandedThreadProjectIds, setExpandedThreadProjectIds] = useState<Set<string>>(() =>
+    readStringSetFromStorage(SIDEBAR_EXPANDED_THREADS_KEY),
+  )
+  const [threadsByProject, setThreadsByProject] = useState<Record<string, ChatThread[]>>({})
+  const [loadingProjectIds, setLoadingProjectIds] = useState<Set<string>>(new Set())
   const [projectActionError, setProjectActionError] = useState("")
   const [isCreatingProject, setIsCreatingProject] = useState(false)
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
@@ -1491,6 +1515,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const hasLoadedUrlPromptRef = useRef(false)
   const resumingTaskIdsRef = useRef<Set<string>>(new Set())
+  const paymentPromptImpressionKeyRef = useRef("")
   const [chatState, setChatState] = useState<ChatState>(() => createInitialChatState())
   const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null)
   const activeProject =
@@ -1510,7 +1535,6 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const latestMediaKey = latestVisibleMessage?.media?.urls.join("|") ?? ""
   const isSignedIn = Boolean(session?.user)
   const isAuthPending = isSessionPending || isSigningIn
-  const canBuyCreditPacks = account ? canPurchaseCreditPack(account.credits) : false
   const workspaceState =
     isSignedIn && !isActiveProjectBootstrapped
       ? ("initializing" as const)
@@ -1523,6 +1547,12 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   const isChatNavigationLoading =
     isChatNavigationPending && !bootstrapError
   const isChatInputDisabled = isThinking || !isSignedIn || !isWorkspaceReady || isChatNavigationPending
+  const isFreeUser = account?.credits.plan.toLowerCase() === "free"
+  const totalCredits = account?.credits.totalCredits ?? 0
+  const shouldShowPaymentPrompt =
+    isSignedIn && Boolean(account) && isFreeUser && !isChatNavigationPending && !paymentPromptDismissed
+  const paymentPromptVariant =
+    totalCredits <= 0 ? "out_of_credits" : hasConversationStarted ? "active_free_user" : "new_free_user"
 
   useEffect(() => {
     if (!session?.user.id) {
@@ -1534,6 +1564,38 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       name: session.user.name,
     })
   }, [session?.user.id, session?.user.email, session?.user.name])
+
+  useEffect(() => {
+    if (!shouldShowPaymentPrompt || !session?.user.id || !account) {
+      return
+    }
+
+    const impressionKey = `${session.user.id}:${paymentPromptVariant}:${totalCredits}`
+    if (paymentPromptImpressionKeyRef.current === impressionKey) {
+      return
+    }
+
+    paymentPromptImpressionKeyRef.current = impressionKey
+    captureEvent("payment_prompt_viewed", {
+      source: "chat_session_composer",
+      prompt_variant: paymentPromptVariant,
+      credits_plan: account.credits.plan,
+      subscription_status: account.credits.subscriptionStatus,
+      total_credits: totalCredits,
+      has_conversation_started: hasConversationStarted,
+      active_project_id: activeProject?.id,
+      active_thread_id: activeSession?.id,
+    })
+  }, [
+    account,
+    activeProject?.id,
+    activeSession?.id,
+    hasConversationStarted,
+    paymentPromptVariant,
+    session?.user.id,
+    shouldShowPaymentPrompt,
+    totalCredits,
+  ])
 
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     window.requestAnimationFrame(() => {
@@ -1591,6 +1653,69 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     void authClient.signOut()
   }
 
+  async function loadProjectThreads(projectAgentId: string) {
+    if (!projectAgentId) {
+      return
+    }
+    setLoadingProjectIds((current) => {
+      if (current.has(projectAgentId)) {
+        return current
+      }
+      const next = new Set(current)
+      next.add(projectAgentId)
+      return next
+    })
+
+    try {
+      const response = await fetch(agentApiUrl(`/projects/${encodeURIComponent(projectAgentId)}/threads`), {
+        headers: { Accept: "application/json" },
+      })
+      const data = await readJsonBody<{ threads?: ChatThread[] }>(response, "Threads could not be loaded.")
+      if (!response.ok) {
+        throw new Error(data.error || "Threads could not be loaded.")
+      }
+      setThreadsByProject((current) => ({
+        ...current,
+        [projectAgentId]: data.threads || [],
+      }))
+    } catch (error) {
+      captureAnalyticsException(error, { source: "sidebar", action: "load_project_threads", project_agent_id: projectAgentId })
+    } finally {
+      setLoadingProjectIds((current) => {
+        if (!current.has(projectAgentId)) {
+          return current
+        }
+        const next = new Set(current)
+        next.delete(projectAgentId)
+        return next
+      })
+    }
+  }
+
+  function toggleProjectExpanded(projectId: string) {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }
+
+  function toggleProjectThreadsExpanded(projectId: string) {
+    setExpandedThreadProjectIds((current) => {
+      const next = new Set(current)
+      if (next.has(projectId)) {
+        next.delete(projectId)
+      } else {
+        next.add(projectId)
+      }
+      return next
+    })
+  }
+
   async function refreshAccount(projectAgentId?: string | null, chatThreadId?: string | null) {
     setBootstrapError("")
 
@@ -1613,7 +1738,8 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     setBillingError("")
     setCheckoutPlan(plan)
     captureEvent("subscription_checkout_started", {
-      source: "chat_billing_dialog",
+      source: billingEntrySource,
+      dialog_source: "chat_billing_dialog",
       plan,
       interval: billingInterval,
       price_usd: priceForInterval(plan, billingInterval),
@@ -1637,67 +1763,16 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
       window.location.assign(data.url)
     } catch (error) {
-      captureAnalyticsException(error, { source: "chat_billing_dialog", action: "subscription_checkout", plan })
+      captureAnalyticsException(error, { source: billingEntrySource, action: "subscription_checkout", plan })
       captureEvent("checkout_failed", {
-        source: "chat_billing_dialog",
+        source: billingEntrySource,
+        dialog_source: "chat_billing_dialog",
         checkout_kind: "subscription",
         plan,
       })
       setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
     } finally {
       setCheckoutPlan(null)
-    }
-  }
-
-  async function startCreditPackCheckout(pack: CreditPack) {
-    setBillingError("")
-
-    if (!account || !canPurchaseCreditPack(account.credits)) {
-      captureEvent("credit_pack_checkout_blocked", {
-        source: "chat_billing_dialog",
-        pack,
-        credits_plan: account?.credits.plan,
-        subscription_status: account?.credits.subscriptionStatus,
-      })
-      setBillingError("Subscribe to a paid plan before buying credit packs.")
-      return
-    }
-
-    setCheckoutPack(pack)
-    captureEvent("credit_pack_checkout_started", {
-      source: "chat_billing_dialog",
-      pack,
-      credits: CREDIT_PACKS[pack].credits,
-      price_usd: CREDIT_PACKS[pack].priceUsd,
-      credits_plan: account.credits.plan,
-    })
-
-    try {
-      const response = await fetch("/api/billing/checkout", {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ checkoutKind: "credit_pack", pack }),
-      })
-      const data = (await response.json()) as { url?: string; error?: string }
-
-      if (!response.ok || !data.url) {
-        throw new Error(data.error || "Checkout could not be started.")
-      }
-
-      window.location.assign(data.url)
-    } catch (error) {
-      captureAnalyticsException(error, { source: "chat_billing_dialog", action: "credit_pack_checkout", pack })
-      captureEvent("checkout_failed", {
-        source: "chat_billing_dialog",
-        checkout_kind: "credit_pack",
-        pack,
-      })
-      setBillingError(error instanceof Error ? error.message : "Checkout could not be started.")
-    } finally {
-      setCheckoutPack(null)
     }
   }
 
@@ -1728,11 +1803,39 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   }
 
   function openBillingDialog(source: string) {
+    setBillingEntrySource(source)
     setBillingOpen(true)
     captureEvent("billing_dialog_opened", {
       source,
+      dialog_source: "chat_billing_dialog",
       credits_plan: account?.credits.plan,
       total_credits: account?.credits.totalCredits,
+    })
+  }
+
+  function clickPaymentPrompt() {
+    captureEvent("payment_prompt_clicked", {
+      source: "chat_session_composer",
+      prompt_variant: paymentPromptVariant,
+      credits_plan: account?.credits.plan,
+      subscription_status: account?.credits.subscriptionStatus,
+      total_credits: totalCredits,
+      has_conversation_started: hasConversationStarted,
+      active_project_id: activeProject?.id,
+      active_thread_id: activeSession?.id,
+    })
+    openBillingDialog("chat_session_payment_prompt")
+  }
+
+  function dismissPaymentPrompt() {
+    setPaymentPromptDismissed(true)
+    captureEvent("payment_prompt_dismissed", {
+      source: "chat_session_composer",
+      prompt_variant: paymentPromptVariant,
+      credits_plan: account?.credits.plan,
+      subscription_status: account?.credits.subscriptionStatus,
+      total_credits: totalCredits,
+      has_conversation_started: hasConversationStarted,
     })
   }
 
@@ -1823,6 +1926,114 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
     window.localStorage.setItem(SESSION_PANEL_COLLAPSED_KEY, String(isSessionPanelCollapsed))
   }, [isSessionPanelCollapsed])
+
+  useEffect(() => {
+    writeStringSetToStorage(SIDEBAR_EXPANDED_PROJECTS_KEY, expandedProjectIds)
+  }, [expandedProjectIds])
+
+  useEffect(() => {
+    writeStringSetToStorage(SIDEBAR_EXPANDED_THREADS_KEY, expandedThreadProjectIds)
+  }, [expandedThreadProjectIds])
+
+  useEffect(() => {
+    if (!account?.activeProject.id) {
+      return
+    }
+
+    const projectId = account.activeProject.id
+    const threads = account.threads
+    setThreadsByProject((current) => {
+      const existing = current[projectId]
+      if (existing && existing.length === threads.length && existing.every((thread, index) => thread.id === threads[index]?.id && thread.updatedAt === threads[index]?.updatedAt)) {
+        return current
+      }
+      return { ...current, [projectId]: threads }
+    })
+  }, [account?.activeProject.id, account?.threads])
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setExpandedProjectIds(new Set())
+      setExpandedThreadProjectIds(new Set())
+      setThreadsByProject({})
+      setLoadingProjectIds(new Set())
+    }
+  }, [isSignedIn])
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      return
+    }
+    setExpandedProjectIds((current) => {
+      if (current.has(activeProjectId)) {
+        return current
+      }
+      const next = new Set(current)
+      next.add(activeProjectId)
+      return next
+    })
+  }, [activeProjectId])
+
+  useEffect(() => {
+    if (!account) {
+      return
+    }
+    const projectIds = new Set(account.projects.map((project) => project.id))
+    setExpandedProjectIds((current) => {
+      let mutated = false
+      const next = new Set<string>()
+      current.forEach((id) => {
+        if (projectIds.has(id)) {
+          next.add(id)
+        } else {
+          mutated = true
+        }
+      })
+      return mutated ? next : current
+    })
+    setExpandedThreadProjectIds((current) => {
+      let mutated = false
+      const next = new Set<string>()
+      current.forEach((id) => {
+        if (projectIds.has(id)) {
+          next.add(id)
+        } else {
+          mutated = true
+        }
+      })
+      return mutated ? next : current
+    })
+    setThreadsByProject((current) => {
+      let mutated = false
+      const next: Record<string, ChatThread[]> = {}
+      for (const [id, threads] of Object.entries(current)) {
+        if (projectIds.has(id)) {
+          next[id] = threads
+        } else {
+          mutated = true
+        }
+      }
+      return mutated ? next : current
+    })
+  }, [account])
+
+  useEffect(() => {
+    if (!isSignedIn || !account) {
+      return
+    }
+    const activeId = account.activeProject.id
+    const targets = Array.from(expandedProjectIds).filter(
+      (id) => id !== activeId && !threadsByProject[id] && !loadingProjectIds.has(id),
+    )
+    if (targets.length === 0) {
+      return
+    }
+    targets.forEach((projectId) => {
+      void loadProjectThreads(projectId)
+    })
+    // loadProjectThreads is stable within render; safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedProjectIds, account, isSignedIn])
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -2077,6 +2288,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       return
     }
 
+    setIsMobileNavOpen(false)
     setIsCreatingThread(true)
     setProjectActionError("")
     captureEvent("chat_thread_create_started", {
@@ -2132,6 +2344,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       return
     }
 
+    setIsMobileNavOpen(false)
     setProjectActionError("")
     setProjectNameError("")
     setProjectNameDraft("")
@@ -2237,16 +2450,29 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       .catch(() => undefined)
   }
 
-  function selectChatThread(threadId: string) {
+  function selectChatThread(threadId: string, projectAgentId?: string) {
     setProjectActionError("")
+    setIsMobileNavOpen(false)
+    const targetProjectId = projectAgentId || activeProject?.id
+    const switchesProject = Boolean(targetProjectId && targetProjectId !== activeProject?.id)
     captureEvent("chat_thread_selected", {
       source: "sidebar",
-      project_agent_id: activeProject?.id,
+      project_agent_id: targetProjectId,
       chat_thread_id: threadId,
+      switches_project: switchesProject,
     })
     if (!isCurrentThreadUrl(threadId)) {
       updateChatThreadUrl(threadId)
     }
+
+    if (switchesProject && targetProjectId) {
+      setActiveProjectId(targetProjectId)
+      setBootstrapError("")
+      setIsStorageReady(false)
+      void refreshAccount(targetProjectId, threadId).catch(() => undefined)
+      return
+    }
+
     setChatState((current) => ({
       ...current,
       activeSessionId: threadId,
@@ -2275,7 +2501,71 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
       })
   }
 
+  async function startNewChatInProject(projectId: string) {
+    if (!isSignedIn) {
+      void signInWithGoogle("new_chat")
+      return
+    }
+    if (!projectId || isCreatingThread) {
+      return
+    }
+
+    if (projectId === activeProject?.id) {
+      await startNewChat()
+      return
+    }
+
+    setIsMobileNavOpen(false)
+    setIsCreatingThread(true)
+    setProjectActionError("")
+    setBootstrapError("")
+    setIsStorageReady(false)
+    captureEvent("chat_thread_create_started", {
+      source: "sidebar",
+      project_agent_id: projectId,
+      switches_project: true,
+    })
+
+    try {
+      const thread = await createThreadRequest(projectId)
+      setActiveProjectId(projectId)
+      setThreadsByProject((current) => {
+        const existing = current[projectId] || []
+        return {
+          ...current,
+          [projectId]: [thread, ...existing.filter((item) => item.id !== thread.id)],
+        }
+      })
+      updateChatThreadUrl(thread.id)
+      try {
+        await refreshAccount(projectId, thread.id)
+      } catch {
+        // ignore: thread is created server-side; refresh will retry on next interaction
+      }
+      setDraft("")
+      setAttachments([])
+      setAttachmentError("")
+      captureEvent("chat_thread_created", {
+        source: "sidebar",
+        project_agent_id: projectId,
+        chat_thread_id: thread.id,
+        switches_project: true,
+      })
+    } catch (error) {
+      captureAnalyticsException(error, { source: "sidebar", action: "create_thread_in_project", project_agent_id: projectId })
+      captureEvent("chat_thread_create_failed", {
+        source: "sidebar",
+        project_agent_id: projectId,
+        switches_project: true,
+      })
+      setProjectActionError(error instanceof Error ? error.message : "Chat could not be created.")
+    } finally {
+      setIsCreatingThread(false)
+    }
+  }
+
   function openRenameDialog(target: ManagementTarget) {
+    setIsMobileNavOpen(false)
     setRenameTarget(target)
     setRenameDraft(target.label)
     setRenameError("")
@@ -2288,6 +2578,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
   }
 
   function openDeleteDialog(target: ManagementTarget) {
+    setIsMobileNavOpen(false)
     setDeleteTarget(target)
     setProjectActionError("")
     captureEvent("management_dialog_opened", {
@@ -2342,6 +2633,16 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
               }
             : current,
         )
+        setThreadsByProject((current) => {
+          const existing = current[thread.projectAgentId]
+          if (!existing) {
+            return current
+          }
+          return {
+            ...current,
+            [thread.projectAgentId]: existing.map((item) => (item.id === thread.id ? thread : item)),
+          }
+        })
         setChatState((current) => ({
           ...current,
           sessions: current.sessions.map((session) =>
@@ -2390,6 +2691,14 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     try {
       if (target.type === "project") {
         await deleteProjectRequest(target.id)
+        setThreadsByProject((current) => {
+          if (!(target.id in current)) {
+            return current
+          }
+          const next = { ...current }
+          delete next[target.id]
+          return next
+        })
         const deletingActiveProject = activeProject?.id === target.id
         setIsStorageReady(false)
         const nextAccount = await refreshAccount(
@@ -2401,6 +2710,20 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
         }
       } else {
         await deleteThreadRequest(target.id)
+        setThreadsByProject((current) => {
+          let mutated = false
+          const next: Record<string, ChatThread[]> = {}
+          for (const [projectId, threads] of Object.entries(current)) {
+            const filtered = threads.filter((thread) => thread.id !== target.id)
+            if (filtered.length !== threads.length) {
+              mutated = true
+              next[projectId] = filtered
+            } else {
+              next[projectId] = threads
+            }
+          }
+          return mutated ? next : current
+        })
         const deletingActiveThread = activeSession?.id === target.id
         setIsStorageReady(false)
         const nextAccount = await refreshAccount(activeProject?.id, deletingActiveThread ? null : activeSession?.id)
@@ -2672,6 +2995,226 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
     }
   }
 
+  const renderExpandedSidebar = (opts?: { panelId?: string }) => (
+    <>
+      <div className="mb-3 flex items-center gap-2 px-1">
+        <button
+          type="button"
+          onClick={() => void startNewChat()}
+          disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
+          className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/35 bg-primary/10 px-3 text-sm font-medium text-primary transition hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-50"
+        >
+          {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+          New chat
+        </button>
+      </div>
+
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Projects</p>
+        <button
+          type="button"
+          onClick={openNewProjectDialog}
+          disabled={isCreatingProject || !isSignedIn || !account}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition hover:bg-background/55 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        >
+          {isCreatingProject || isAccountLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+          New
+        </button>
+      </div>
+
+      <div
+        {...(opts?.panelId ? { id: opts.panelId } : {})}
+        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-1"
+      >
+        {isAccountLoading ? (
+          <SidebarLoadingRow collapsed={false} label="Loading projects..." />
+        ) : !account && bootstrapError ? (
+          <SidebarErrorRow collapsed={false} label="Retry required" />
+        ) : (account?.projects || []).length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border/70 bg-background/40 px-3 py-4 text-center text-xs text-muted-foreground">
+            No projects yet. Click &quot;New&quot; to start.
+          </div>
+        ) : (
+          (account?.projects || []).map((project) => {
+            const isActiveProj = activeProject?.id === project.id
+            const isExpanded = expandedProjectIds.has(project.id)
+            const threadsForProject = isActiveProj
+              ? chatState.sessions.map((session) => ({
+                  id: session.id,
+                  title: session.title,
+                  updatedAt: new Date(session.updatedAt).toISOString(),
+                  projectAgentId: project.id,
+                  createdAt: new Date(session.updatedAt).toISOString(),
+                }))
+              : threadsByProject[project.id]
+            const threadsLoading = !threadsForProject && (loadingProjectIds.has(project.id) || (isActiveProj && isChatNavigationLoading))
+            const allThreads = threadsForProject || []
+            const showAllThreads = expandedThreadProjectIds.has(project.id)
+            const visibleThreads = showAllThreads ? allThreads : allThreads.slice(0, SIDEBAR_VISIBLE_THREADS_DEFAULT)
+            const hiddenCount = Math.max(0, allThreads.length - visibleThreads.length)
+
+            return (
+              <div key={project.id} className="flex flex-col">
+                <div
+                  className={cn(
+                    "group/proj flex min-h-10 items-center gap-1 rounded-lg pr-1 transition",
+                    isActiveProj
+                      ? "bg-background/82 text-foreground"
+                      : "text-muted-foreground hover:bg-background/55 hover:text-foreground",
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    aria-pressed={isActiveProj}
+                    onClick={() => {
+                      toggleProjectExpanded(project.id)
+                      if (!isActiveProj) {
+                        switchProject(project.id)
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-2 text-left outline-none"
+                  >
+                    <span
+                      className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+                      aria-hidden="true"
+                    >
+                      {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    </span>
+                    <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5">{project.name}</span>
+                    {!isExpanded && (
+                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+                        {formatRelativeTime(projectActivityTimestamp(project))}
+                      </span>
+                    )}
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 data-[state=open]:opacity-100 lg:h-6 lg:w-6 lg:opacity-0 lg:group-hover/proj:opacity-100"
+                        aria-label={`Manage ${project.name}`}
+                      >
+                        <MoreHorizontal className="h-4 w-4 lg:h-3.5 lg:w-3.5" aria-hidden="true" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          void startNewChatInProject(project.id)
+                        }}
+                        disabled={isCreatingThread}
+                      >
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        New chat
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openRenameDialog({ type: "project", id: project.id, label: project.name })}>
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                        Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem variant="destructive" onSelect={() => openDeleteDialog({ type: "project", id: project.id, label: project.name })}>
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                {isExpanded && (
+                  <div className="flex flex-col gap-0.5 pb-1 pl-6">
+                    {threadsLoading ? (
+                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        Loading
+                      </div>
+                    ) : allThreads.length === 0 ? (
+                      <div className="px-2 py-1 text-xs text-muted-foreground/70">No chats yet</div>
+                    ) : (
+                      <>
+                        {visibleThreads.map((thread) => {
+                          const isActiveThread = isActiveProj && activeSession.id === thread.id
+                          return (
+                            <div
+                              key={thread.id}
+                              className={cn(
+                                "group/thread flex min-h-9 items-center gap-1 rounded-md pr-1 transition",
+                                isActiveThread
+                                  ? "bg-primary/[0.075] text-foreground"
+                                  : "text-muted-foreground hover:bg-background/55 hover:text-foreground",
+                              )}
+                            >
+                              <button
+                                type="button"
+                                aria-pressed={isActiveThread}
+                                onClick={() => selectChatThread(thread.id, project.id)}
+                                className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none"
+                              >
+                                <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                                  {thread.title || "New chat"}
+                                </span>
+                                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+                                  {formatRelativeTime(thread.updatedAt)}
+                                </span>
+                              </button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 data-[state=open]:opacity-100 lg:h-6 lg:w-6 lg:opacity-0 lg:group-hover/thread:opacity-100"
+                                    aria-label={`Manage ${thread.title}`}
+                                  >
+                                    <MoreHorizontal className="h-4 w-4 lg:h-3.5 lg:w-3.5" aria-hidden="true" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-40">
+                                  <DropdownMenuItem onSelect={() => openRenameDialog({ type: "thread", id: thread.id, label: thread.title })}>
+                                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                                    Rename
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem variant="destructive" onSelect={() => openDeleteDialog({ type: "thread", id: thread.id, label: thread.title })}>
+                                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          )
+                        })}
+                        {hiddenCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleProjectThreadsExpanded(project.id)}
+                            className="flex min-h-7 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted-foreground/80 transition hover:bg-background/55 hover:text-foreground"
+                          >
+                            <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                            Show {hiddenCount} more
+                          </button>
+                        )}
+                        {showAllThreads && allThreads.length > SIDEBAR_VISIBLE_THREADS_DEFAULT && (
+                          <button
+                            type="button"
+                            onClick={() => toggleProjectThreadsExpanded(project.id)}
+                            className="flex min-h-7 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted-foreground/80 transition hover:bg-background/55 hover:text-foreground"
+                          >
+                            <ChevronRight className="h-3 w-3 rotate-90" aria-hidden="true" />
+                            Show less
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </>
+  )
+
   return (
     <section className="relative isolate h-dvh min-h-dvh overflow-hidden bg-background">
       <div
@@ -2748,268 +3291,171 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
             </div>
 
             {isSessionPanelCollapsed ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                rounded="lg"
-                className="mb-3 bg-transparent lg:size-11"
-                type="button"
-                onClick={openNewProjectDialog}
-                title="New project"
-                disabled={isCreatingProject || !isSignedIn || !account}
-              >
-                {isCreatingProject || isAccountLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
-              </Button>
-            ) : (
-              <div className="mb-4 rounded-2xl border border-primary/15 bg-primary/[0.035] p-2.5">
-                <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Projects
-                  </p>
-                  <button
-                    type="button"
-                    onClick={openNewProjectDialog}
-                    disabled={isCreatingProject || !isSignedIn || !account}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
-                  >
-                    {isCreatingProject || isAccountLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
-                    New
-                  </button>
-                </div>
-
-                <div className="grid gap-1">
-                  {isAccountLoading ? (
-                    <SidebarLoadingRow collapsed={false} label="Loading projects..." />
-                  ) : !account && bootstrapError ? (
-                    <SidebarErrorRow collapsed={false} label="Retry required" />
+              <>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  rounded="lg"
+                  className="mb-3 bg-transparent lg:size-11"
+                  type="button"
+                  onClick={openNewProjectDialog}
+                  title="New project"
+                  disabled={isCreatingProject || !isSignedIn || !account}
+                >
+                  {isCreatingProject || isAccountLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  rounded="lg"
+                  className="mb-3 bg-transparent lg:size-11"
+                  type="button"
+                  onClick={() => void startNewChat()}
+                  title="New chat"
+                  disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
+                >
+                  {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+                </Button>
+                <div
+                  id="gemini-spark-session-list"
+                  className="grid min-h-0 w-11 flex-1 content-start gap-1 overflow-y-auto"
+                >
+                  {isChatNavigationLoading ? (
+                    <SidebarLoadingRow collapsed label="Loading chats..." />
+                  ) : isChatNavigationPending ? (
+                    <SidebarErrorRow collapsed label="Retry required" />
                   ) : (
-                    (account?.projects || []).map((project) => {
-                      const isActive = activeProject?.id === project.id
-
+                    chatState.sessions.map((session) => {
+                      const SessionIcon = sessionIcon(session)
+                      const isActive = activeSession.id === session.id
                       return (
-                        <div
-                          key={project.id}
+                        <button
+                          key={session.id}
+                          type="button"
+                          aria-pressed={isActive}
+                          title={session.title}
+                          onClick={() => selectChatThread(session.id)}
                           className={cn(
-                            "group flex min-h-12 items-center gap-2 rounded-xl border px-2.5 py-2 transition",
+                            "grid size-11 min-h-0 grid-cols-1 place-items-center rounded-lg border p-0 text-left transition",
                             isActive
-                              ? "border-primary/35 bg-background/82 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-                              : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-background/55 hover:text-foreground",
+                              ? "border-primary/18 bg-primary/[0.055] text-foreground"
+                              : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-background/55 hover:text-foreground",
                           )}
                         >
-                          <button
-                            type="button"
-                            aria-pressed={isActive}
-                            onClick={() => switchProject(project.id)}
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
+                          <span
+                            className={cn(
+                              "flex h-8 w-8 items-center justify-center rounded-md border",
+                              isActive
+                                ? "border-primary/30 bg-primary/10 text-primary"
+                                : "border-border bg-secondary text-muted-foreground",
+                            )}
                           >
-                            <span
-                              className={cn(
-                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
-                                isActive ? "border-primary/35 bg-primary/15 text-primary" : "border-border bg-secondary text-muted-foreground",
-                              )}
-                            >
-                              <Bot className="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-semibold leading-5">{project.name}</span>
-                              <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
-                                {project.status.toLowerCase() === "ready" ? "Ready" : "Initializing"}
-                              </span>
-                            </span>
-                          </button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                type="button"
-                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 group-hover:opacity-100 data-[state=open]:opacity-100"
-                                aria-label={`Manage ${project.name}`}
-                              >
-                                <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
-                              <DropdownMenuItem onSelect={() => openRenameDialog({ type: "project", id: project.id, label: project.name })}>
-                                <Pencil className="h-4 w-4" aria-hidden="true" />
-                                Rename
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem variant="destructive" onSelect={() => openDeleteDialog({ type: "project", id: project.id, label: project.name })}>
-                                <Trash2 className="h-4 w-4" aria-hidden="true" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
+                            <SessionIcon className="h-4 w-4" aria-hidden="true" />
+                          </span>
+                        </button>
                       )
                     })
                   )}
                 </div>
-              </div>
-            )}
-
-            {isSessionPanelCollapsed ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                rounded="lg"
-                className="mb-3 bg-transparent lg:size-11"
-                type="button"
-                onClick={() => void startNewChat()}
-                title="New chat"
-                disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
-              >
-                {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
-              </Button>
+              </>
             ) : (
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Chats
-                  </p>
-                  <p className="mt-1 truncate text-xs text-muted-foreground/70">
-                    {isChatNavigationLoading
-                      ? "Loading chats..."
-                      : isChatNavigationPending
-                        ? "Retry required"
-                        : activeProject?.name || "No project selected"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void startNewChat()}
-                  disabled={isCreatingThread || !isSignedIn || !activeProject || isChatNavigationLoading}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary transition hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-50"
-                >
-                  {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
-                  New
-                </button>
-              </div>
+              renderExpandedSidebar({ panelId: "gemini-spark-session-list" })
             )}
-
-            <div
-              id="gemini-spark-session-list"
-              className={cn(
-                "grid min-h-0 flex-1 content-start gap-1 overflow-y-auto border-t border-border/60 pt-2",
-                isSessionPanelCollapsed && "lg:w-11 lg:border-t-0 lg:pt-0",
-              )}
-            >
-              {isChatNavigationLoading ? (
-                <SidebarLoadingRow collapsed={isSessionPanelCollapsed} label="Loading chats..." />
-              ) : isChatNavigationPending ? (
-                <SidebarErrorRow collapsed={isSessionPanelCollapsed} label="Retry required" />
-              ) : (
-                chatState.sessions.map((session) => {
-                const SessionIcon = sessionIcon(session)
-                const isActive = activeSession.id === session.id
-
-                if (isSessionPanelCollapsed) {
-                  return (
-                    <button
-                      key={session.id}
-                      type="button"
-                      aria-pressed={isActive}
-                      title={session.title}
-                      onClick={() => selectChatThread(session.id)}
-                      className={cn(
-                        "grid size-11 min-h-0 grid-cols-1 place-items-center rounded-lg border p-0 text-left transition",
-                        isActive
-                          ? "border-primary/18 bg-primary/[0.055] text-foreground"
-                          : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-background/55 hover:text-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-md border",
-                          isActive
-                            ? "border-primary/30 bg-primary/10 text-primary"
-                            : "border-border bg-secondary text-muted-foreground",
-                        )}
-                      >
-                        <SessionIcon className="h-4 w-4" aria-hidden="true" />
-                      </span>
-                    </button>
-                  )
-                }
-
-                return (
-                  <div
-                    key={session.id}
-                    className={cn(
-                      "group flex min-h-12 items-center gap-2.5 rounded-lg border px-2.5 py-2 transition",
-                      isActive
-                        ? "border-primary/18 bg-primary/[0.055] text-foreground"
-                        : "border-transparent bg-transparent text-muted-foreground hover:border-border/80 hover:bg-background/55 hover:text-foreground",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => selectChatThread(session.id)}
-                      className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none"
-                    >
-                      <span
-                        className={cn(
-                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border",
-                          isActive
-                            ? "border-primary/30 bg-primary/10 text-primary"
-                            : "border-border bg-secondary text-muted-foreground",
-                        )}
-                      >
-                        <SessionIcon className="h-4 w-4" aria-hidden="true" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium leading-5">{session.title}</span>
-                        <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{sessionSubtitle(session)}</span>
-                      </span>
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 group-hover:opacity-100 data-[state=open]:opacity-100"
-                          aria-label={`Manage ${session.title}`}
-                        >
-                          <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem onSelect={() => openRenameDialog({ type: "thread", id: session.id, label: session.title })}>
-                          <Pencil className="h-4 w-4" aria-hidden="true" />
-                          Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => openDeleteDialog({ type: "thread", id: session.id, label: session.title })}>
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                )
-                })
-              )}
-            </div>
           </aside>
 
           <div className="flex min-h-0 flex-col">
-            <div className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border/70 bg-background/72 px-4 backdrop-blur-xl sm:px-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background/72 px-3 backdrop-blur-xl sm:h-16 sm:gap-4 sm:px-6">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
+                  <SheetTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 lg:hidden"
+                      aria-label="Open projects and chats menu"
+                    >
+                      <Menu className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col gap-0 border-r border-border/70 bg-background/95 p-0 backdrop-blur-xl sm:max-w-sm">
+                    <SheetHeader className="border-b border-border/70 px-4 py-3">
+                      <SheetTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+                          <Sparkles className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                        Gemini Spark
+                      </SheetTitle>
+                      <SheetDescription className="sr-only">Projects and chats navigation</SheetDescription>
+                    </SheetHeader>
+                    <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+                      {renderExpandedSidebar()}
+                    </div>
+                    {isSignedIn && (
+                      <div className="shrink-0 border-t border-border/70 bg-background/80 px-3 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+                        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/[0.06] px-3 py-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Wallet className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold text-foreground">
+                                {account ? `${account.credits.totalCredits} credits` : "Loading..."}
+                              </span>
+                              <span className="block truncate text-[11px] text-muted-foreground">
+                                {session?.user.email || session?.user.name || ""}
+                              </span>
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            rounded="lg"
+                            className="shrink-0 gap-1.5"
+                            onClick={() => {
+                              setIsMobileNavOpen(false)
+                              openBillingDialog("mobile_sidebar_upgrade")
+                            }}
+                          >
+                            <CreditCard className="h-3.5 w-3.5" aria-hidden="true" />
+                            Upgrade
+                          </Button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMobileNavOpen(false)
+                            signOut()
+                          }}
+                          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-border bg-background/60 px-3 text-sm text-muted-foreground transition hover:border-border hover:bg-background/80 hover:text-foreground"
+                        >
+                          <LogOut className="h-4 w-4" aria-hidden="true" />
+                          Sign out
+                        </button>
+                      </div>
+                    )}
+                  </SheetContent>
+                </Sheet>
+                <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary sm:flex">
                   <Bot className="h-4 w-4" aria-hidden="true" />
                 </span>
-                <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Project agent</p>
-                  <h1 className="truncate text-sm font-semibold text-foreground">
-                    {activeProject?.name || AGENT_BRAND}
-                    {isChatNavigationPending ? (
-                      <span className="font-normal text-muted-foreground">
-                        {" / "}
-                        {isChatNavigationLoading ? "Loading chats..." : "Retry required"}
-                      </span>
-                    ) : activeSession?.title ? (
-                      <span className="font-normal text-muted-foreground"> / {activeSession.title}</span>
-                    ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className="hidden text-xs text-muted-foreground sm:block">Project agent</p>
+                  <h1 className="truncate text-sm font-semibold text-foreground sm:text-sm">
+                    <span className="lg:hidden">{activeSession?.title || activeProject?.name || AGENT_BRAND}</span>
+                    <span className="hidden lg:inline">
+                      {activeProject?.name || AGENT_BRAND}
+                      {isChatNavigationPending ? (
+                        <span className="font-normal text-muted-foreground">
+                          {" / "}
+                          {isChatNavigationLoading ? "Loading chats..." : "Retry required"}
+                        </span>
+                      ) : activeSession?.title ? (
+                        <span className="font-normal text-muted-foreground"> / {activeSession.title}</span>
+                      ) : null}
+                    </span>
                   </h1>
+                  <p className="truncate text-[11px] leading-4 text-muted-foreground lg:hidden">
+                    {isChatNavigationPending
+                      ? (isChatNavigationLoading ? "Loading chats..." : "Retry required")
+                      : activeProject?.name || AGENT_BRAND}
+                  </p>
                 </div>
               </div>
               <div className="flex min-w-0 items-center justify-end gap-2">
@@ -3055,76 +3501,6 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                   {isCreatingThread || isChatNavigationLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
                 </Button>
               </div>
-            </div>
-
-            <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-border/70 bg-background/72 px-4 py-2 lg:hidden">
-              {isAccountLoading ? (
-                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-border bg-background/60 px-3 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
-                  Loading projects...
-                </span>
-              ) : !account && bootstrapError ? (
-                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  Retry required
-                </span>
-              ) : (
-                (account?.projects || []).map((project) => {
-                  const isActive = activeProject?.id === project.id
-
-                  return (
-                    <button
-                      key={project.id}
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => switchProject(project.id)}
-                      className={cn(
-                        "inline-flex h-9 max-w-40 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
-                        isActive
-                          ? "border-primary/55 bg-primary/10 text-foreground"
-                          : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{project.name}</span>
-                    </button>
-                  )
-                })
-              )}
-              {isChatNavigationLoading ? (
-                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-border bg-background/60 px-3 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
-                  Loading chats...
-                </span>
-              ) : isChatNavigationPending ? (
-                <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                  Retry required
-                </span>
-              ) : (
-                chatState.sessions.map((session) => {
-                  const SessionIcon = sessionIcon(session)
-                  const isActive = activeSession.id === session.id
-
-                  return (
-                    <button
-                      key={session.id}
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => selectChatThread(session.id)}
-                      className={cn(
-                        "inline-flex h-9 max-w-44 shrink-0 items-center gap-2 rounded-full border px-3 text-xs transition",
-                        isActive
-                          ? "border-primary/55 bg-primary/10 text-foreground"
-                          : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <SessionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{session.title}</span>
-                    </button>
-                  )
-                })
-              )}
             </div>
 
             {isWorkspaceBlocked && (
@@ -3303,7 +3679,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                 </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="shrink-0 px-4 pb-5 pt-3 sm:px-6">
+              <form onSubmit={handleSubmit} className="shrink-0 px-3 pt-3 sm:px-6 pb-[max(env(safe-area-inset-bottom),1.25rem)]">
                 <div className="mx-auto w-full max-w-4xl">
                   {!isSignedIn && (
                     <div className="mb-3 flex flex-col gap-3 rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -3312,6 +3688,42 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                         {isAuthPending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                         {isAuthPending ? "Signing in" : "Sign in"}
                       </Button>
+                    </div>
+                  )}
+
+                  {shouldShowPaymentPrompt && (
+                    <div className="mb-3 rounded-xl border border-primary/25 bg-primary/[0.075] p-3 text-sm text-foreground shadow-[0_18px_55px_rgba(0,0,0,0.24)]">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/15 text-primary">
+                            <CreditCard className="h-4 w-4" aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">
+                              {paymentPromptVariant === "out_of_credits"
+                                ? "Free credits are used up"
+                                : `${totalCredits} free credit${totalCredits === 1 ? "" : "s"} remaining`}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              Upgrade monthly for 1,000 credits across chat, image, and video tasks.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2 sm:self-start">
+                          <Button type="button" size="sm" rounded="full" className="gap-2" onClick={clickPaymentPrompt}>
+                            Upgrade monthly
+                            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Button>
+                          <button
+                            type="button"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
+                            onClick={dismissPaymentPrompt}
+                            aria-label="Dismiss upgrade prompt"
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -3365,7 +3777,7 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
 
                   {attachmentError && <p className="mb-3 text-xs text-destructive">{attachmentError}</p>}
 
-                  <div className="grid gap-2 rounded-2xl border border-border bg-card/88 p-2 shadow-[0_18px_60px_rgba(0,0,0,0.32)] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-end">
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-2 rounded-2xl border border-border bg-card/88 p-2 shadow-[0_18px_60px_rgba(0,0,0,0.32)]">
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -3378,21 +3790,23 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       type="button"
                       variant="ghost"
                       rounded="xl"
-                      className="h-11 gap-2 bg-transparent"
+                      size="icon"
+                      className="h-11 w-11 shrink-0 bg-transparent sm:w-auto sm:gap-2 sm:px-4"
                       onClick={() => {
                         captureEvent("attachment_picker_opened", { source: "chat_composer" })
                         fileInputRef.current?.click()
                       }}
                       disabled={isChatInputDisabled}
+                      aria-label="Attach file"
                     >
                       <Paperclip className="h-4 w-4" aria-hidden="true" />
-                      Attach
+                      <span className="hidden sm:inline">Attach</span>
                     </Button>
                     <Textarea
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       onKeyDown={handleDraftKeyDown}
-                      className="min-h-11 resize-none border-0 bg-transparent px-2 py-2 text-sm leading-6 shadow-none focus-visible:ring-0"
+                      className="min-h-11 resize-none border-0 bg-transparent px-2 py-2 text-base leading-6 shadow-none focus-visible:ring-0 sm:text-sm"
                       placeholder={
                         !isSignedIn
                           ? "Sign in to chat with Gemini Spark..."
@@ -3408,9 +3822,16 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="inline-flex">
-                          <Button type="submit" rounded="xl" className="h-11 gap-2" disabled={isChatInputDisabled || !draft.trim()}>
+                          <Button
+                            type="submit"
+                            rounded="xl"
+                            size="icon"
+                            className="h-11 w-11 shrink-0 sm:w-auto sm:gap-2 sm:px-4"
+                            disabled={isChatInputDisabled || !draft.trim()}
+                            aria-label={isThinking ? "Thinking" : "Send"}
+                          >
                             {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                            {isThinking ? "Thinking" : "Send"}
+                            <span className="hidden sm:inline">{isThinking ? "Thinking" : "Send"}</span>
                           </Button>
                         </span>
                       </TooltipTrigger>
@@ -3578,49 +3999,58 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
         onOpenChange={(open) => {
           setBillingOpen(open)
           if (!open) {
-            captureEvent("billing_dialog_closed", { source: "chat_billing_dialog" })
+            captureEvent("billing_dialog_closed", {
+              source: billingEntrySource,
+              dialog_source: "chat_billing_dialog",
+            })
           }
         }}
       >
-        <DialogContent className="max-h-[min(90dvh,840px)] w-[calc(100vw-32px)] max-w-none gap-0 overflow-hidden border-white/10 bg-[oklch(0.085_0.006_250)] p-0 shadow-[0_28px_110px_rgb(0_0_0_/_0.72)] sm:w-[min(1120px,calc(100vw-48px))] sm:max-w-none">
-          <div className="max-h-[min(90dvh,840px)] overflow-y-auto">
-            <div className="border-b border-white/10 bg-[linear-gradient(135deg,oklch(0.12_0.012_250),oklch(0.075_0.006_250)_70%)] px-5 pb-5 pt-6 sm:px-7 sm:pb-6 sm:pt-7">
-              <DialogHeader className="max-w-2xl gap-3 pr-10 text-left">
-                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[min(94dvh,900px)] w-[calc(100vw-24px)] max-w-none gap-0 overflow-hidden border-white/[0.06] bg-[oklch(0.075_0.006_250)] p-0 shadow-[0_40px_140px_rgb(0_0_0_/_0.78)] sm:w-[min(960px,calc(100vw-40px))] sm:max-w-none"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-[0.18]"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)",
+              backgroundSize: "44px 44px",
+              maskImage: "radial-gradient(ellipse at 50% 0%, rgb(0,0,0) 30%, transparent 80%)",
+            }}
+          />
+          <DialogClose
+            className="absolute right-5 top-5 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03] text-muted-foreground transition hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            aria-label="Close upgrade dialog"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </DialogClose>
+
+          <div className="relative max-h-[min(94dvh,900px)] overflow-y-auto">
+            <div className="px-6 pt-8 sm:px-9 sm:pt-10">
+              <DialogHeader className="gap-0 text-left">
+                <div className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/25 bg-primary/[0.08] px-3 py-1 text-xs font-medium text-primary">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
                   Workspace credits
                 </div>
-                <DialogTitle className="text-2xl font-semibold leading-tight tracking-display text-foreground sm:text-3xl">
-                  Upgrade Gemini Spark
+                <DialogTitle className="mt-5 text-4xl font-semibold leading-[1.05] tracking-display text-foreground sm:text-5xl">
+                  Upgrade{" "}
+                  <span className="font-serif italic font-normal text-[oklch(0.82_0.12_245)]">
+                    Gemini Spark
+                  </span>
                 </DialogTitle>
-                <DialogDescription className="max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-                  One balance powers every task across chat, image, and video work.
+                <DialogDescription className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+                  One balance powers every task across chat, image, and video — choose the plan that fits how you ship.
                 </DialogDescription>
               </DialogHeader>
-
-              <div className="mt-5 grid gap-2 sm:grid-cols-3">
-                {billingUsageCosts.map((item) => (
-                  <div key={item.label} className="flex items-center justify-between rounded-md border border-white/10 bg-background/45 px-3 py-2.5">
-                    <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                      <item.icon className="h-4 w-4 text-primary" aria-hidden="true" />
-                      {item.label}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {item.cost} credit{item.cost > 1 ? "s" : ""}
-                    </span>
-                  </div>
-                ))}
-              </div>
             </div>
 
-            <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Choose a plan</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {billingInterval === "year" ? "Annual credits are granted upfront." : "Monthly billing is selected by default."}
-                </p>
-              </div>
-              <div className="flex w-fit rounded-full border border-white/10 bg-background/60 p-1 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)]">
+            <div className="mt-8 flex items-center justify-between gap-4 px-6 sm:px-9">
+              <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Billing cycle
+              </span>
+              <div className="flex w-fit rounded-full border border-white/[0.08] bg-white/[0.025] p-1 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)]">
                 {(["month", "year"] as const).map((interval) => (
                   <button
                     key={interval}
@@ -3633,193 +4063,265 @@ export function GeminiSparkChat({ initialThreadId }: { initialThreadId?: string 
                       })
                     }}
                     className={cn(
-                      "inline-flex min-w-24 items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition",
+                      "inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition",
                       billingInterval === interval
-                        ? "bg-primary text-primary-foreground shadow-[0_10px_24px_oklch(0.68_0.19_255_/_0.24)]"
+                        ? "bg-white text-[oklch(0.12_0.01_250)] shadow-[0_2px_8px_rgb(0_0_0_/_0.3)]"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                     aria-pressed={billingInterval === interval}
                   >
-                    {interval === "year" ? `Yearly - save ${yearlySavings("PRO")}%` : "Monthly"}
+                    {interval === "year" ? "Yearly" : "Monthly"}
+                    {interval === "year" && (
+                      <span
+                        className={cn(
+                          "rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+                          billingInterval === "year"
+                            ? "bg-[oklch(0.55_0.16_150)]/15 text-[oklch(0.78_0.17_150)]"
+                            : "bg-[oklch(0.55_0.16_150)]/12 text-[oklch(0.78_0.17_150)]",
+                        )}
+                      >
+                        SAVE {yearlySavings("PRO")}%
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid gap-4 px-5 py-5 sm:px-7 lg:grid-cols-2">
+            <div className="mt-6 grid gap-4 px-6 pb-6 sm:px-9 md:grid-cols-2">
               {paidPlanOrder.map((plan) => {
                 const details = BILLING_PLANS[plan]
-                const price = priceForInterval(plan, billingInterval)
-                const yearlyCredits = details.monthlyCredits * 12
-                const cycleCredits = billingInterval === "year" ? yearlyCredits : details.monthlyCredits
-                const equivalents = creditEquivalents(cycleCredits)
-                const effectiveMonthly = billingInterval === "year" ? price / 12 : price
+                const monthlyPrice = details.monthlyPriceUsd
+                const yearlyPrice = details.yearlyPriceUsd
+                const yearlySavingsDollars = monthlyPrice * 12 - yearlyPrice
+                const cycleCredits = details.monthlyCredits
+                const imageTasks = Math.floor(cycleCredits / CREDIT_COSTS.image)
+                const videoTasks = Math.floor(cycleCredits / CREDIT_COSTS["text-to-video"])
+                const chatTasks = Math.floor(cycleCredits / CREDIT_COSTS.text)
                 const isPro = plan === "PRO"
                 const isPending = checkoutPlan === plan
+                const priceDisplay = billingInterval === "year"
+                  ? Math.round(yearlyPrice / 12)
+                  : monthlyPrice
 
                 return (
                   <article
                     key={plan}
                     className={cn(
-                      "relative flex min-h-[430px] flex-col overflow-hidden rounded-lg border bg-background/42 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.035)]",
-                      isPro ? "border-primary/45 bg-primary/[0.055]" : "border-white/10",
+                      "relative flex flex-col overflow-hidden rounded-xl border bg-white/[0.015] p-6 transition",
+                      isPro
+                        ? "border-primary/55 shadow-[0_0_0_1px_oklch(0.68_0.19_255_/_0.18),0_24px_80px_-30px_oklch(0.68_0.19_255_/_0.55)]"
+                        : "border-white/[0.07]",
                     )}
                   >
-                    {isPro && (
-                      <span className="absolute right-4 top-4 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                        Most capacity
-                      </span>
-                    )}
-
-                    <div className="flex flex-1 flex-col p-5">
-                      <div className="max-w-[74%]">
-                        <h3 className="text-xl font-semibold text-foreground">{details.label}</h3>
-                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                          {billingInterval === "year"
-                            ? `${yearlyCredits} credits available immediately after checkout.`
-                            : `${details.monthlyCredits} credits added each month for active work.`}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3
+                          className={cn(
+                            "text-xs font-semibold uppercase tracking-[0.22em]",
+                            isPro ? "text-primary" : "text-muted-foreground",
+                          )}
+                        >
+                          {details.label}
+                        </h3>
+                        <p className="mt-3 max-w-[240px] text-sm leading-6 text-muted-foreground">
+                          {isPro
+                            ? "For teams launching campaigns and shipping at volume."
+                            : "For solo builders shipping their first traction."}
                         </p>
                       </div>
-
-                      <div className="mt-7 flex items-end gap-2">
-                        <span className="text-4xl font-semibold leading-none text-foreground">{formatMoney(price)}</span>
-                        <span className="pb-1 text-sm text-muted-foreground">/{billingInterval === "year" ? "year" : "month"}</span>
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {billingInterval === "year"
-                          ? `${formatMoney(effectiveMonthly)} per month equivalent.`
-                          : `Switch to yearly and save ${yearlySavings(plan)}%.`}
-                      </p>
-
-                      <div className="mt-6 grid grid-cols-3 gap-2">
-                        <div className="min-h-[76px] rounded-md border border-white/10 bg-card/45 px-3 py-3">
-                          <p className="text-lg font-semibold text-foreground">{cycleCredits}</p>
-                          <p className="mt-1 text-xs leading-4 text-muted-foreground">
-                            {billingInterval === "year" ? "credits today" : "credits / mo"}
-                          </p>
-                        </div>
-                        <div className="min-h-[76px] rounded-md border border-white/10 bg-card/45 px-3 py-3">
-                          <p className="text-lg font-semibold text-foreground">{equivalents.images}</p>
-                          <p className="mt-1 text-xs leading-4 text-muted-foreground">image tasks</p>
-                        </div>
-                        <div className="min-h-[76px] rounded-md border border-white/10 bg-card/45 px-3 py-3">
-                          <p className="text-lg font-semibold text-foreground">{equivalents.videos}</p>
-                          <p className="mt-1 text-xs leading-4 text-muted-foreground">video tasks</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-6 grid gap-2 border-t border-white/10 pt-4 text-sm text-muted-foreground">
-                        <span className="inline-flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                          {billingInterval === "year" ? "Full year of credits granted upfront" : "Credits refresh every month"}
+                      {isPro && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/[0.08] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                          <Zap className="h-3 w-3 fill-primary" aria-hidden="true" />
+                          Most capacity
                         </span>
-                        <span className="inline-flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                          Up to {equivalents.chats} chats from this credit pool
-                        </span>
-                        <span className="inline-flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                          Project workspace and Stripe billing management
-                        </span>
-                      </div>
+                      )}
                     </div>
 
-                    <div className="border-t border-white/10 p-4">
-                      <Button
-                        type="button"
-                        variant={isPro ? "default" : "outline"}
-                        rounded="lg"
-                        className={cn("h-11 w-full gap-2", !isPro && "bg-transparent")}
-                        onClick={() => void startCheckout(plan)}
-                        disabled={checkoutPlan !== null || checkoutPack !== null}
+                    <div className="mt-8 flex items-baseline gap-1">
+                      <span className="text-2xl font-medium text-muted-foreground/80">$</span>
+                      <span
+                        className={cn(
+                          "font-serif text-6xl font-normal leading-none tracking-tight",
+                          isPro
+                            ? "bg-gradient-to-b from-[oklch(0.96_0.02_255)] to-[oklch(0.72_0.18_255)] bg-clip-text text-transparent"
+                            : "text-foreground",
+                        )}
                       >
-                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
-                        {isPending ? "Opening checkout" : `Continue with ${details.label}`}
-                      </Button>
+                        {priceDisplay}
+                      </span>
+                      <span className="ml-1 text-sm text-muted-foreground">/ mo</span>
                     </div>
+
+                    <div className="mt-3 min-h-[20px] text-sm text-muted-foreground">
+                      {billingInterval === "year" ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-muted-foreground/70 line-through">{formatMoney(monthlyPrice)}</span>
+                          <span>Save {formatMoney(yearlySavingsDollars)} a year with annual billing.</span>
+                        </span>
+                      ) : isPro ? (
+                        <span>Save {formatMoney(yearlySavingsDollars)} a year with annual billing.</span>
+                      ) : (
+                        <span>Billed monthly. Cancel anytime.</span>
+                      )}
+                    </div>
+
+                    <div
+                      className={cn(
+                        "mt-6 grid grid-cols-3 gap-2 rounded-lg border p-1",
+                        isPro ? "border-primary/20 bg-primary/[0.04]" : "border-white/[0.06] bg-white/[0.015]",
+                      )}
+                    >
+                      <div className="flex flex-col gap-1.5 rounded-md px-3 py-3">
+                        <Clock className={cn("h-3.5 w-3.5", isPro ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
+                        <span className="text-base font-semibold text-foreground">{cycleCredits.toLocaleString()}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Credits / mo</span>
+                      </div>
+                      <div className="flex flex-col gap-1.5 rounded-md px-3 py-3">
+                        <ImageIcon className={cn("h-3.5 w-3.5", isPro ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
+                        <span className="text-base font-semibold text-foreground">{imageTasks}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Image tasks</span>
+                      </div>
+                      <div className="flex flex-col gap-1.5 rounded-md px-3 py-3">
+                        <Video className={cn("h-3.5 w-3.5", isPro ? "text-primary" : "text-muted-foreground")} aria-hidden="true" />
+                        <span className="text-base font-semibold text-foreground">{videoTasks}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Video tasks</span>
+                      </div>
+                    </div>
+
+                    <ul className="mt-6 flex flex-col gap-3 text-sm text-muted-foreground">
+                      {isPro ? (
+                        <>
+                          <li className="inline-flex items-start gap-2.5">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span>
+                              Everything in Startup, <span className="font-medium text-foreground">2.5× the capacity</span>
+                            </span>
+                          </li>
+                          <li className="inline-flex items-start gap-2.5">
+                            <Zap className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span>
+                              <span className="font-medium text-foreground">Priority queue</span> for image & video
+                            </span>
+                          </li>
+                          <li className="inline-flex items-start gap-2.5">
+                            <User className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span>
+                              Shared <span className="font-medium text-foreground">team workspaces</span>
+                            </span>
+                          </li>
+                        </>
+                      ) : (
+                        <>
+                          <li className="inline-flex items-start gap-2.5">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span>
+                              <span className="font-medium text-foreground">Auto-refresh</span> every billing period
+                            </span>
+                          </li>
+                          <li className="inline-flex items-start gap-2.5">
+                            <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span>
+                              Up to <span className="font-medium text-foreground">{chatTasks.toLocaleString()} chats</span> from this pool
+                            </span>
+                          </li>
+                          <li className="inline-flex items-start gap-2.5">
+                            <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span>Workspace & Stripe billing</span>
+                          </li>
+                        </>
+                      )}
+                    </ul>
+
+                    <Button
+                      type="button"
+                      variant={isPro ? "default" : "outline"}
+                      rounded="lg"
+                      className={cn(
+                        "mt-7 h-11 w-full gap-2 text-sm font-medium",
+                        isPro
+                          ? "bg-primary text-primary-foreground shadow-[0_10px_40px_-8px_oklch(0.68_0.19_255_/_0.65)] hover:bg-primary/90"
+                          : "border-white/[0.1] bg-transparent hover:border-white/20 hover:bg-white/[0.04]",
+                      )}
+                      onClick={() => void startCheckout(plan)}
+                      disabled={checkoutPlan !== null}
+                    >
+                      {isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          Opening checkout
+                        </>
+                      ) : (
+                        <>
+                          Continue with {details.label}
+                          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </>
+                      )}
+                    </Button>
                   </article>
                 )
               })}
             </div>
 
-            <div className="border-t border-white/10 px-5 pb-6 pt-5 sm:px-7">
+            <div className="border-t border-white/[0.06] bg-white/[0.01] px-6 py-4 sm:px-9">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-base font-semibold text-foreground">Credit packs</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Available after an active paid plan for bigger launches and media batches.</p>
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.03]">
+                    <Layers className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Need a one-off boost? Grab a credit pack.</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Available after activating any paid plan.</p>
+                  </div>
                 </div>
-                <Button type="button" variant="ghost" rounded="lg" className="h-9 w-fit px-3 text-sm" asChild>
-                  <Link href="/pricing">View pricing</Link>
-                </Button>
+                <Link
+                  href="/pricing#credit-packs"
+                  className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-primary transition hover:text-[oklch(0.78_0.18_255)] sm:self-center"
+                  onClick={() => {
+                    captureEvent("credit_pack_link_clicked", {
+                      source: "chat_billing_dialog",
+                    })
+                  }}
+                >
+                  View packs
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
               </div>
-
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                {creditPackOrder.map((pack) => {
-                  const details = CREDIT_PACKS[pack]
-                  const equivalents = creditEquivalents(details.credits)
-                  const isPending = checkoutPack === pack
-
-                  return (
-                    <article key={pack} className="flex min-h-[250px] flex-col rounded-lg border border-white/10 bg-background/38 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-base font-semibold text-foreground">{details.label}</h3>
-                          <p className="mt-1 text-xs font-medium text-primary">{perCreditLabel(details.credits, details.priceUsd)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xl font-semibold text-foreground">{formatMoney(details.priceUsd)}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{details.credits} credits</p>
-                        </div>
-                      </div>
-
-                      <p className="mt-4 text-sm leading-6 text-muted-foreground">{details.description}</p>
-
-                      <div className="mt-4 grid gap-1.5 border-t border-white/10 pt-4 text-xs text-muted-foreground">
-                        <span className="flex items-center justify-between gap-2">
-                          <span>Chat</span>
-                          <span className="font-medium text-foreground">up to {equivalents.chats}</span>
-                        </span>
-                        <span className="flex items-center justify-between gap-2">
-                          <span>Image / video</span>
-                          <span className="font-medium text-foreground">
-                            {equivalents.images} / {equivalents.videos}
-                          </span>
-                        </span>
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        rounded="lg"
-                        className="mt-auto w-full gap-2 bg-transparent"
-                        onClick={() => void startCreditPackCheckout(pack)}
-                        disabled={checkoutPlan !== null || checkoutPack !== null || !canBuyCreditPacks}
-                      >
-                        {isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Wallet className="h-4 w-4" aria-hidden="true" />}
-                        {isPending ? "Opening checkout" : canBuyCreditPacks ? "Buy pack" : "Requires plan"}
-                      </Button>
-                    </article>
-                  )
-                })}
-              </div>
-
-              {((account && account.credits.plan !== "free") || billingError) && (
-                <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                  {account && account.credits.plan !== "free" && (
-                    <Button type="button" variant="outline" rounded="lg" className="w-fit gap-2 bg-transparent" onClick={() => void openBillingPortal()}>
-                      <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                      Manage billing
-                    </Button>
-                  )}
-
-                  {billingError && (
-                    <p className="rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-                      {billingError}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
+
+            <div className="border-t border-white/[0.06] px-6 py-4 sm:px-9">
+              <div className="flex flex-wrap items-center justify-center gap-x-7 gap-y-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                  Secured by Stripe
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                  Cancel anytime
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  30-day refund guarantee
+                </span>
+              </div>
+            </div>
+
+            {((account && account.credits.plan.toLowerCase() !== "free") || billingError) && (
+              <div className="flex flex-col gap-3 border-t border-white/[0.06] px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-9">
+                {account && account.credits.plan.toLowerCase() !== "free" && (
+                  <Button type="button" variant="outline" rounded="lg" className="w-fit gap-2 border-white/[0.1] bg-transparent" onClick={() => void openBillingPortal()}>
+                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                    Manage billing
+                  </Button>
+                )}
+
+                {billingError && (
+                  <p className="rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+                    {billingError}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

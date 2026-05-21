@@ -239,6 +239,32 @@ export async function updateProjectAgent(userId: string, projectAgentId: string,
   return serializeProject(updated)
 }
 
+export async function listChatThreads(userId: string, projectAgentId: string) {
+  const project = await prisma.projectAgent.findFirst({
+    where: {
+      id: projectAgentId,
+      userId,
+      archivedAt: null,
+    },
+    select: { id: true },
+  })
+
+  if (!project) {
+    return null
+  }
+
+  const threads = await prisma.chatThread.findMany({
+    where: {
+      userId,
+      projectAgentId,
+      archivedAt: null,
+    },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "asc" }],
+  })
+
+  return threads.map(serializeThread)
+}
+
 export async function createChatThread(userId: string, projectAgentId: string, title?: string) {
   const project = await prisma.projectAgent.findFirst({
     where: {
