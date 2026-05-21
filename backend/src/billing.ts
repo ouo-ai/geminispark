@@ -19,6 +19,9 @@ const BILLING_INTERVAL = {
   MONTH: "MONTH",
   YEAR: "YEAR",
 } as const satisfies { MONTH: BillingInterval; YEAR: BillingInterval }
+const MANUAL_MEMBER_EMAILS = new Set(["danke030210@gmail.com"])
+const MANUAL_MEMBER_PLAN = BillingPlan.PRO
+const MANUAL_MEMBER_INTERVAL = BILLING_INTERVAL.MONTH
 
 function addMonths(date: Date, months: number) {
   const next = new Date(date)
@@ -41,10 +44,81 @@ function toJson(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 }
 
+function normalizeEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() || null
+}
+
+async function manualMemberEmailForUser(tx: Prisma.TransactionClient, userId: string) {
+  const user = await tx.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  })
+  const email = normalizeEmail(user?.email)
+
+  return email && MANUAL_MEMBER_EMAILS.has(email) ? email : null
+}
+
 export function creditCostForIntent(intent: TaskIntent) {
   if (intent === TaskIntent.IMAGE) return 5
   if (intent === TaskIntent.TEXT_TO_VIDEO || intent === TaskIntent.IMAGE_TO_VIDEO) return 10
   return 1
+}
+
+async function syncManualMemberCreditTx(
+  tx: Prisma.TransactionClient,
+  credit: Prisma.UserCreditGetPayload<Record<string, never>>,
+  email: string,
+  now = new Date(),
+) {
+  const cycleCredits = planCredits(MANUAL_MEMBER_PLAN, MANUAL_MEMBER_INTERVAL)
+  const shouldGrant =
+    credit.plan !== MANUAL_MEMBER_PLAN ||
+    credit.billingInterval !== MANUAL_MEMBER_INTERVAL ||
+    !ACTIVE_STATUSES.has(credit.subscriptionStatus) ||
+    !credit.nextCreditGrantAt ||
+    credit.nextCreditGrantAt <= now
+  const periodStart = now
+  const periodEnd = addMonths(now, cycleMonths(MANUAL_MEMBER_INTERVAL))
+
+  credit = await tx.userCredit.update({
+    where: { userId: credit.userId },
+    data: {
+      plan: MANUAL_MEMBER_PLAN,
+      billingInterval: MANUAL_MEMBER_INTERVAL,
+      subscriptionStatus: SubscriptionStatus.ACTIVE,
+      periodCreditsRemaining: shouldGrant ? cycleCredits : undefined,
+      creditsPeriodStart: shouldGrant ? periodStart : undefined,
+      creditsPeriodEnd: shouldGrant ? periodEnd : undefined,
+      nextCreditGrantAt: shouldGrant ? periodEnd : undefined,
+    },
+  })
+
+  if (shouldGrant) {
+    await tx.creditTransaction.createMany({
+      data: [
+        {
+          userId: credit.userId,
+          type: CreditTransactionType.GRANT,
+          bucket: CreditBucket.PERIOD,
+          amount: cycleCredits,
+          balanceAfterFree: credit.freeCreditsRemaining,
+          balanceAfterPeriod: credit.periodCreditsRemaining,
+          description: "Manual member plan credits granted.",
+          idempotencyKey: `manual-member:${credit.userId}:${MANUAL_MEMBER_INTERVAL.toLowerCase()}:${periodStart.toISOString()}`,
+          metadata: toJson({
+            email,
+            plan: MANUAL_MEMBER_PLAN,
+            interval: MANUAL_MEMBER_INTERVAL,
+            credits: cycleCredits,
+            source: "manual_member",
+          }),
+        },
+      ],
+      skipDuplicates: true,
+    })
+  }
+
+  return credit
 }
 
 async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, now = new Date()) {
@@ -72,6 +146,11 @@ async function syncCreditPeriodTx(tx: Prisma.TransactionClient, userId: string, 
       ],
       skipDuplicates: true,
     })
+  }
+
+  const manualMemberEmail = await manualMemberEmailForUser(tx, userId)
+  if (manualMemberEmail) {
+    return syncManualMemberCreditTx(tx, credit, manualMemberEmail, now)
   }
 
   const interval = credit.billingInterval || BILLING_INTERVAL.MONTH

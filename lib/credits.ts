@@ -17,6 +17,9 @@ const PRISMA_BILLING_INTERVAL = {
   MONTH: "MONTH",
   YEAR: "YEAR",
 } as const satisfies { MONTH: PrismaBillingInterval; YEAR: PrismaBillingInterval }
+const MANUAL_MEMBER_EMAILS = new Set(["danke030210@gmail.com"])
+const MANUAL_MEMBER_PLAN = BillingPlan.PRO
+const MANUAL_MEMBER_INTERVAL = PRISMA_BILLING_INTERVAL.MONTH
 
 type CreditRecord = Prisma.UserCreditGetPayload<Record<string, never>>
 
@@ -43,6 +46,20 @@ function toJson(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 }
 
+function normalizeEmail(email: string | null | undefined) {
+  return email?.trim().toLowerCase() || null
+}
+
+async function manualMemberEmailForUser(tx: Prisma.TransactionClient, userId: string) {
+  const user = await tx.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  })
+  const email = normalizeEmail(user?.email)
+
+  return email && MANUAL_MEMBER_EMAILS.has(email) ? email : null
+}
+
 function serializeCredit(credit: CreditRecord) {
   return {
     freeCreditsRemaining: credit.freeCreditsRemaining,
@@ -55,6 +72,62 @@ function serializeCredit(credit: CreditRecord) {
     creditsPeriodEnd: credit.creditsPeriodEnd?.toISOString() || null,
     nextCreditGrantAt: credit.nextCreditGrantAt?.toISOString() || null,
   }
+}
+
+async function syncManualMemberCredit(
+  tx: Prisma.TransactionClient,
+  credit: CreditRecord,
+  email: string,
+  now = new Date(),
+) {
+  const cycleCredits = planCredits(MANUAL_MEMBER_PLAN, MANUAL_MEMBER_INTERVAL)
+  const shouldGrant =
+    credit.plan !== MANUAL_MEMBER_PLAN ||
+    credit.billingInterval !== MANUAL_MEMBER_INTERVAL ||
+    !ACTIVE_STATUSES.has(credit.subscriptionStatus) ||
+    !credit.nextCreditGrantAt ||
+    credit.nextCreditGrantAt <= now
+  const dates = shouldGrant ? nextGrantDates(MANUAL_MEMBER_INTERVAL, now) : null
+
+  const updated = await tx.userCredit.update({
+    where: { userId: credit.userId },
+    data: {
+      plan: MANUAL_MEMBER_PLAN,
+      billingInterval: MANUAL_MEMBER_INTERVAL,
+      subscriptionStatus: SubscriptionStatus.ACTIVE,
+      periodCreditsRemaining: shouldGrant ? cycleCredits : undefined,
+      creditsPeriodStart: dates?.creditsPeriodStart,
+      creditsPeriodEnd: dates?.creditsPeriodEnd,
+      nextCreditGrantAt: dates?.nextCreditGrantAt,
+    },
+  })
+
+  if (shouldGrant && dates) {
+    await tx.creditTransaction.createMany({
+      data: [
+        {
+          userId: credit.userId,
+          type: CreditTransactionType.GRANT,
+          bucket: CreditBucket.PERIOD,
+          amount: cycleCredits,
+          balanceAfterFree: updated.freeCreditsRemaining,
+          balanceAfterPeriod: updated.periodCreditsRemaining,
+          description: "Manual member plan credits granted.",
+          idempotencyKey: `manual-member:${credit.userId}:${MANUAL_MEMBER_INTERVAL.toLowerCase()}:${dates.creditsPeriodStart.toISOString()}`,
+          metadata: toJson({
+            email,
+            plan: MANUAL_MEMBER_PLAN,
+            interval: MANUAL_MEMBER_INTERVAL,
+            credits: cycleCredits,
+            source: "manual_member",
+          }),
+        },
+      ],
+      skipDuplicates: true,
+    })
+  }
+
+  return updated
 }
 
 function nextGrantDates(interval: PrismaBillingInterval | null | undefined, now = new Date()) {
@@ -107,8 +180,14 @@ async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditReco
 
 export async function ensureUserCredit(userId: string) {
   return prisma.$transaction(async (tx) => {
+    const manualMemberEmail = await manualMemberEmailForUser(tx, userId)
     const existing = await tx.userCredit.findUnique({ where: { userId } })
     if (existing) {
+      if (manualMemberEmail) {
+        const synced = await syncManualMemberCredit(tx, existing, manualMemberEmail)
+        return serializeCredit(synced)
+      }
+
       const synced = await syncCreditPeriod(tx, existing)
       return serializeCredit(synced)
     }
@@ -132,6 +211,11 @@ export async function ensureUserCredit(userId: string) {
         idempotencyKey: `initial-free:${userId}`,
       },
     })
+
+    if (manualMemberEmail) {
+      const synced = await syncManualMemberCredit(tx, created, manualMemberEmail)
+      return serializeCredit(synced)
+    }
 
     return serializeCredit(created)
   })
