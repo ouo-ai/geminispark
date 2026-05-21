@@ -16,7 +16,7 @@ const OPENCLAW_AGENT_ID = process.env.OPENCLAW_AGENT_ID || "geminispark"
 const OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_DATA_DIR || "/opt/openclaw-data/config"
 const OPENCLAW_ACTIVITY_MAX_EVENTS = Math.max(10, Math.min(200, Number(process.env.OPENCLAW_ACTIVITY_MAX_EVENTS || 80)))
 const OPENCLAW_RPC_TIMEOUT_MS = Number(process.env.OPENCLAW_RPC_TIMEOUT_MS || 30_000)
-const OPENCLAW_HISTORY_RPC_TIMEOUT_MS = Number(process.env.OPENCLAW_HISTORY_RPC_TIMEOUT_MS || 8_000)
+const OPENCLAW_HISTORY_RPC_TIMEOUT_MS = Number(process.env.OPENCLAW_HISTORY_RPC_TIMEOUT_MS || OPENCLAW_RPC_TIMEOUT_MS)
 const OPENCLAW_SYNC_FAILURE_LIMIT = Math.max(1, Number(process.env.OPENCLAW_SYNC_FAILURE_LIMIT || 3))
 const PUBLIC_AGENT_NAME = "Gemini Spark"
 const OPENCLAW_CLIENT_ID = "gateway-client"
@@ -682,34 +682,68 @@ function historyEntries(value) {
   return []
 }
 
-async function loadRuntimeHistory(sessionKey) {
-  const history = await callOpenClaw("chat.history", {
-    sessionKey,
-    maxChars: 16_000,
-  })
-
-  if (historyEntries(history).length > 0) {
-    return history
-  }
-
+async function loadRuntimePreview(sessionKey) {
   const preview = await callOpenClaw("sessions.preview", {
     keys: [sessionKey],
     limit: 30,
     maxChars: 2_000,
-  }).catch(() => null)
+  })
   const items = Array.isArray(preview?.previews?.[0]?.items) ? preview.previews[0].items : []
 
   if (items.length === 0) {
-    return history
+    return null
   }
 
   return {
-    ...history,
     messages: items.map((item) => ({
       role: item.role,
       text: item.text,
     })),
     preview,
+  }
+}
+
+async function loadRuntimeHistory(sessionKey) {
+  let history = null
+  let historyError = ""
+
+  try {
+    history = await callOpenClaw("chat.history", {
+      sessionKey,
+      maxChars: 16_000,
+    })
+  } catch (error) {
+    historyError = error instanceof Error ? error.message : "OpenClaw runtime history is not available yet."
+  }
+
+  if (historyEntries(history).length > 0) {
+    return history
+  }
+
+  try {
+    const preview = await loadRuntimePreview(sessionKey)
+    if (preview) {
+      return {
+        ...(history && typeof history === "object" ? history : {}),
+        ...preview,
+        ...(historyError ? { historySyncError: publicAgentText(historyError) } : {}),
+      }
+    }
+  } catch (error) {
+    if (!historyError) {
+      historyError = error instanceof Error ? error.message : "OpenClaw runtime preview is not available yet."
+    }
+  }
+
+  if (history) {
+    return history
+  }
+
+  return {
+    messages: [],
+    historyUnavailable: true,
+    historySyncError: publicAgentText(historyError || "OpenClaw runtime history is not available yet."),
+    running: true,
   }
 }
 
@@ -1034,6 +1068,47 @@ function countRunEvents(run, type) {
   return Array.isArray(run.events) ? run.events.filter((event) => event?.type === type).length : 0
 }
 
+function latestRunEvent(run, type) {
+  const events = Array.isArray(run.events) ? run.events : []
+  return events
+    .slice()
+    .reverse()
+    .find((event) => event?.type === type)
+}
+
+function shouldAddSyncDelayEvent(run) {
+  const latest = latestRunEvent(run, "runtime_sync_delayed")
+  const latestTime = latest?.createdAt ? Date.parse(latest.createdAt) : 0
+  return !latestTime || Date.now() - latestTime >= 30_000
+}
+
+function isTransientRuntimeSyncMessage(message) {
+  return /RPC (?:timed out|failed):\s*(chat\.history|sessions\.preview)/i.test(String(message || ""))
+}
+
+function isTransientRuntimeSyncError(error) {
+  return isTransientRuntimeSyncMessage(error instanceof Error ? error.message : String(error || ""))
+}
+
+function isRecoverableRuntimeSyncFailure(run) {
+  return Boolean(run?.status === "failed" && !run.message && isTransientRuntimeSyncMessage(run.error))
+}
+
+async function recoverTransientRuntimeSyncFailure(run) {
+  if (!isRecoverableRuntimeSyncFailure(run)) {
+    return false
+  }
+
+  run.status = "running"
+  run.error = ""
+  delete run.finishedAt
+  await addEvent(run, "runtime_sync_recovered", "Gemini Spark recovered from a delayed runtime history sync.", {
+    progress: Math.max(25, Number(run.progress || 25)),
+    transient: true,
+  })
+  return true
+}
+
 function isRuntimeBusy(history) {
   if (!history || typeof history !== "object") {
     return false
@@ -1119,6 +1194,8 @@ async function submitRun(run, payload) {
 }
 
 async function refreshRunFromRuntime(run) {
+  await recoverTransientRuntimeSyncFailure(run)
+
   if (run.status === "failed" || run.status === "succeeded" || run.status === "canceled") {
     return run
   }
@@ -1146,8 +1223,17 @@ async function refreshRunFromRuntime(run) {
     run.events = run.events || []
     mergeRunEvents(run, await loadRuntimeTrajectory(run, history))
 
+    if (history?.historyUnavailable && !run.message && shouldAddSyncDelayEvent(run)) {
+      await addEvent(run, "runtime_sync_delayed", "Gemini Spark is waiting for runtime history to become available.", {
+        progress: Math.max(25, Number(run.progress || 25)),
+        transient: true,
+        error: typeof history.historySyncError === "string" ? history.historySyncError : undefined,
+      })
+    }
+
     if (latestText && latestText !== run.message) {
       run.message = latestText
+      run.error = ""
       run.artifacts = [{ type: "text", text: latestText }]
       const urls = extractUrls(latestText)
       run.artifacts.push(
@@ -1169,14 +1255,24 @@ async function refreshRunFromRuntime(run) {
       await addEvent(run, "completed", "Gemini Spark completed the task.", { progress: 100 })
     }
   } catch (error) {
-    run.error = error instanceof Error ? publicAgentText(error.message) : "Gemini Spark runtime sync failed."
-    const nextFailureCount = countRunEvents(run, "runtime_sync_failed") + 1
-    await addEvent(run, "runtime_sync_failed", "Gemini Spark could not sync the runtime yet.", {
+    const transient = isTransientRuntimeSyncError(error)
+    const eventType = transient ? "runtime_sync_delayed" : "runtime_sync_failed"
+    const eventMessage = transient
+      ? "Gemini Spark is waiting for runtime history to become available."
+      : "Gemini Spark could not sync the runtime yet."
+    const syncError = error instanceof Error ? publicAgentText(error.message) : "Gemini Spark runtime sync failed."
+    if (!transient) {
+      run.error = syncError
+    }
+    const nextFailureCount = countRunEvents(run, eventType) + 1
+    await addEvent(run, eventType, eventMessage, {
       progress: Math.max(25, Number(run.progress || 25)),
+      transient,
       syncFailureCount: nextFailureCount,
+      error: syncError,
     })
 
-    if (!run.message && nextFailureCount >= OPENCLAW_SYNC_FAILURE_LIMIT) {
+    if (!transient && !run.message && nextFailureCount >= OPENCLAW_SYNC_FAILURE_LIMIT) {
       run.status = "failed"
       run.finishedAt = new Date().toISOString()
       await addEvent(run, "failed", run.error, {
@@ -1192,7 +1288,11 @@ async function refreshRunFromRuntime(run) {
 }
 
 function refreshRunFromRuntimeInBackground(run) {
-  if (!run?.runId || run.status === "failed" || run.status === "succeeded" || run.status === "canceled") {
+  if (
+    !run?.runId ||
+    ((run.status === "failed" || run.status === "succeeded" || run.status === "canceled") &&
+      !isRecoverableRuntimeSyncFailure(run))
+  ) {
     return
   }
 
@@ -1306,6 +1406,8 @@ const server = createServer(async (request, response) => {
       if (!run) {
         return json(response, 404, { error: "Run not found." })
       }
+
+      await recoverTransientRuntimeSyncFailure(run)
 
       if (url.searchParams.get("refresh") === "sync") {
         const refreshed = await refreshRunFromRuntime(run)

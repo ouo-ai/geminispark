@@ -221,12 +221,27 @@ function openClawEvents(value: unknown) {
     }))
 }
 
+function providerEventData(event: ProviderEvent) {
+  return event.data && typeof event.data === "object" && !Array.isArray(event.data) ? (event.data as Record<string, unknown>) : {}
+}
+
+function isTransientOpenClawSyncError(error: string | undefined) {
+  return Boolean(error && /RPC (?:timed out|failed):\s*(chat\.history|sessions\.preview)/i.test(error))
+}
+
 function shouldTreatRunningRunAsFailed(status: RuntimeRunSnapshot["status"], error: string | undefined, events: ProviderEvent[]) {
   if ((status !== "running" && status !== "queued") || !error) {
     return false
   }
 
-  const syncFailureCount = events.filter((event) => event.type === "runtime_sync_failed").length
+  if (isTransientOpenClawSyncError(error)) {
+    return false
+  }
+
+  const syncFailureCount = events.filter((event) => {
+    const data = providerEventData(event)
+    return event.type === "runtime_sync_failed" && data.transient !== true
+  }).length
   return syncFailureCount >= 3
 }
 
