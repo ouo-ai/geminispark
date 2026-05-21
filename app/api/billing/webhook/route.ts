@@ -4,6 +4,7 @@ import { BILLING_PLANS, CREDIT_PACKS, isBillingInterval, isCreditPack, isPaidPla
 import { activateSubscriptionCredits, grantCreditPackCredits, subscriptionStatusFromStripe } from "@/lib/credits"
 import { prisma } from "@/lib/db"
 import { getStripe, paidPlanFromPriceId } from "@/lib/stripe"
+import { getPostHogClient } from "@/lib/posthog-server"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -92,14 +93,29 @@ async function syncSubscription(subscription: Stripe.Subscription, stripeEventId
     return
   }
 
+  const interval = billingIntervalFromSubscription(subscription)
+  const status = subscriptionStatusFromStripe(subscription.status)
+
   await activateSubscriptionCredits({
     userId,
     plan,
-    interval: billingIntervalFromSubscription(subscription),
-    status: subscriptionStatusFromStripe(subscription.status),
+    interval,
+    status,
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscription.id,
     stripeEventId,
+  })
+
+  getPostHogClient().capture({
+    distinctId: userId,
+    event: "subscription_activated",
+    properties: {
+      plan,
+      interval,
+      status,
+      stripe_subscription_id: subscription.id,
+      stripe_event_id: stripeEventId,
+    },
   })
 }
 
@@ -120,6 +136,19 @@ async function syncCheckoutSession(session: Stripe.Checkout.Session, stripeEvent
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: paymentIntentIdFromSession(session),
       stripeEventId,
+    })
+
+    getPostHogClient().capture({
+      distinctId: userId,
+      event: "credit_pack_purchased",
+      properties: {
+        pack,
+        credits: CREDIT_PACKS[pack].credits,
+        amount_total: session.amount_total,
+        currency: session.currency,
+        stripe_checkout_session_id: session.id,
+        stripe_event_id: stripeEventId,
+      },
     })
     return
   }

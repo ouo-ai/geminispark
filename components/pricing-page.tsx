@@ -29,6 +29,7 @@ import {
 } from "@/lib/billing-config"
 import { authClient } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
+import posthog from "posthog-js"
 
 const paidPlanOrder = ["STARTUP", "PRO"] as const
 const creditPackOrder = ["BOOST_50", "STUDIO_150", "LAUNCH_400"] as const
@@ -95,7 +96,16 @@ export function PricingPage() {
     if (status === "success" || status === "cancel") {
       setBillingStatus(status)
     }
+    posthog.capture("pricing_page_viewed")
   }, [])
+
+  useEffect(() => {
+    if (!session?.user) return
+    posthog.identify(session.user.id, {
+      email: session.user.email,
+      name: session.user.name,
+    })
+  }, [session?.user])
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -151,11 +161,13 @@ export function PricingPage() {
     setIsSigningIn(true)
 
     try {
+      posthog.capture("user_signed_in", { provider: "google", source: "pricing" })
       await authClient.signIn.social({
         provider: "google",
         callbackURL: "/pricing",
       })
     } catch (error) {
+      posthog.captureException(error)
       setBillingError(error instanceof Error ? error.message : "Sign in could not be started.")
       setPendingCheckout(null)
       setIsSigningIn(false)
@@ -198,6 +210,11 @@ export function PricingPage() {
   }
 
   function startPlanCheckout(plan: PaidPlan) {
+    posthog.capture("subscription_checkout_started", {
+      plan,
+      interval: billingInterval,
+      price_usd: priceForInterval(plan, billingInterval),
+    })
     void startCheckout({ checkoutKind: "subscription", plan, interval: billingInterval }, `plan:${plan}`)
   }
 
@@ -207,6 +224,11 @@ export function PricingPage() {
       return
     }
 
+    posthog.capture("credit_pack_checkout_started", {
+      pack,
+      credits: CREDIT_PACKS[pack].credits,
+      price_usd: CREDIT_PACKS[pack].priceUsd,
+    })
     void startCheckout({ checkoutKind: "credit_pack", pack }, `pack:${pack}`)
   }
 

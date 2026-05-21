@@ -1,4 +1,5 @@
 import { getAgentApiAuthHeaders, getSessionOwnerId, jsonError, proxyJsonResponse, requireAgentApiUrl } from "./proxy"
+import { getPostHogClient } from "@/lib/posthog-server"
 
 type ClientAttachment = {
   name: string
@@ -58,6 +59,17 @@ export async function POST(request: Request) {
         projectAgentId: payload.projectAgentId,
         chatThreadId: payload.chatThreadId,
       }),
+    })
+
+    getPostHogClient().capture({
+      distinctId: ownerId,
+      event: "agent_task_submitted",
+      properties: {
+        project_agent_id: payload.projectAgentId,
+        chat_thread_id: payload.chatThreadId,
+        has_attachments: Boolean(payload.attachments?.length),
+        attachment_count: payload.attachments?.length ?? 0,
+      },
     })
 
     return proxyJsonResponse(response, 202)

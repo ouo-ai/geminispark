@@ -6,6 +6,7 @@ import { ensureOpenClawWorkspaceDirect } from "@/lib/openclaw-workspace"
 import { ensureDefaultProjectBundle } from "@/lib/project-agents"
 
 import { getAgentApiAuthHeaders, getAgentApiUrl } from "../tasks/proxy"
+import { getPostHogClient } from "@/lib/posthog-server"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -87,6 +88,17 @@ export async function GET(request: Request) {
         (await ensureOpenClawWorkspaceDirect(session.user.id, bundle.activeProject.id)) ||
         bundle.workspace
     const messages = (await getThreadMessagesForUser(session.user.id, bundle.activeThread.id)) || []
+
+    getPostHogClient().capture({
+      distinctId: session.user.id,
+      event: "workspace_initialized",
+      properties: {
+        project_agent_id: bundle.activeProject.id,
+        thread_id: bundle.activeThread.id,
+        workspace_status: (initializedWorkspace as { status?: string } | null)?.status ?? "unknown",
+        message_count: messages.length,
+      },
+    })
 
     return Response.json({
       profile: bundle.profile,
