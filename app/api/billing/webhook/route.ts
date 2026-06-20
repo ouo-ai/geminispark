@@ -3,7 +3,7 @@ import Stripe from "stripe"
 import { BILLING_PLANS, CREDIT_PACKS, isBillingInterval, isCreditPack, isPaidPlan } from "@/lib/billing-config"
 import { activateSubscriptionCredits, grantCreditPackCredits, subscriptionStatusFromStripe } from "@/lib/credits"
 import { prisma } from "@/lib/db"
-import { getStripe, paidPlanFromPriceId } from "@/lib/stripe"
+import { getStripe, paidPlanFromPrice } from "@/lib/stripe"
 import { getPostHogClient } from "@/lib/posthog-server"
 
 export const dynamic = "force-dynamic"
@@ -22,6 +22,20 @@ function subscriptionIdFromSession(session: Stripe.Checkout.Session) {
 function paymentIntentIdFromSession(session: Stripe.Checkout.Session) {
   if (!session.payment_intent) return null
   return typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent.id
+}
+
+function subscriptionIdFromInvoice(invoice: Stripe.Invoice) {
+  const directSubscription = stripeObjectId(
+    (invoice as Stripe.Invoice & { subscription?: string | { id: string } | null }).subscription,
+  )
+  if (directSubscription) {
+    return directSubscription
+  }
+
+  return stripeObjectId(
+    (invoice.parent?.subscription_details as { subscription?: string | { id: string } | null } | null | undefined)
+      ?.subscription,
+  )
 }
 
 function formatStripeAmount(amount: number | null, currency: string | null) {
@@ -79,7 +93,24 @@ function billingIntervalFromSubscription(subscription: Stripe.Subscription): "mo
   return recurringInterval === "year" ? "year" : "month"
 }
 
-async function syncSubscription(subscription: Stripe.Subscription, stripeEventId: string) {
+function billingPeriodFromSubscription(subscription: Stripe.Subscription) {
+  const item = subscription.items.data[0] as
+    | (Stripe.SubscriptionItem & {
+        current_period_start?: number
+        current_period_end?: number
+      })
+    | undefined
+  const periodStart = item?.current_period_start ? new Date(item.current_period_start * 1000) : null
+  const periodEnd = item?.current_period_end ? new Date(item.current_period_end * 1000) : null
+
+  return { periodStart, periodEnd }
+}
+
+async function syncSubscription(
+  subscription: Stripe.Subscription,
+  stripeEventId: string,
+  options: { grantPeriodCredits?: boolean } = {},
+) {
   const customerId = firstString(subscription.customer)
   const userId = subscription.metadata.userId || (await userIdForCustomer(customerId))
   if (!userId) {
@@ -88,13 +119,14 @@ async function syncSubscription(subscription: Stripe.Subscription, stripeEventId
 
   const firstItem = subscription.items.data[0]
   const planFromMetadata = subscription.metadata.plan
-  const plan = isPaidPlan(planFromMetadata) ? planFromMetadata : paidPlanFromPriceId(firstItem?.price?.id)
+  const plan = isPaidPlan(planFromMetadata) ? planFromMetadata : paidPlanFromPrice(firstItem?.price)
   if (!plan) {
     return
   }
 
   const interval = billingIntervalFromSubscription(subscription)
   const status = subscriptionStatusFromStripe(subscription.status)
+  const { periodStart, periodEnd } = billingPeriodFromSubscription(subscription)
 
   await activateSubscriptionCredits({
     userId,
@@ -104,6 +136,9 @@ async function syncSubscription(subscription: Stripe.Subscription, stripeEventId
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscription.id,
     stripeEventId,
+    periodStart,
+    periodEnd,
+    grantPeriodCredits: options.grantPeriodCredits,
   })
 
   getPostHogClient().capture({
@@ -158,6 +193,20 @@ async function syncCheckoutSession(session: Stripe.Checkout.Session, stripeEvent
   }
 
   const subscriptionId = subscriptionIdFromSession(session)
+  if (!subscriptionId) {
+    return
+  }
+
+  const subscription = await getStripe().subscriptions.retrieve(subscriptionId)
+  await syncSubscription(subscription, stripeEventId)
+}
+
+async function syncPaidInvoice(invoice: Stripe.Invoice, stripeEventId: string) {
+  if (invoice.status !== "paid") {
+    return
+  }
+
+  const subscriptionId = subscriptionIdFromInvoice(invoice)
   if (!subscriptionId) {
     return
   }
@@ -335,9 +384,7 @@ async function notifyPaymentIntentFailure(paymentIntent: Stripe.PaymentIntent, s
 
 async function notifyInvoiceFailure(invoice: Stripe.Invoice, stripeEventId: string) {
   const customerId = firstString(invoice.customer)
-  const subscriptionId = stripeObjectId(
-    (invoice as Stripe.Invoice & { subscription?: string | { id: string } | null }).subscription,
-  )
+  const subscriptionId = subscriptionIdFromInvoice(invoice)
   const userId = invoice.metadata?.userId || (await userIdForCustomer(customerId))
   const user = userId
     ? await prisma.user.findUnique({
@@ -425,12 +472,16 @@ export async function POST(request: Request) {
       await tryRunFeishuNotification("invoice failure", () => notifyInvoiceFailure(event.data.object as Stripe.Invoice, event.id))
     }
 
-    if (
-      event.type === "customer.subscription.created" ||
-      event.type === "customer.subscription.updated" ||
-      event.type === "customer.subscription.deleted"
-    ) {
+    if (event.type === "invoice.payment_succeeded") {
+      await syncPaidInvoice(event.data.object as Stripe.Invoice, event.id)
+    }
+
+    if (event.type === "customer.subscription.created") {
       await syncSubscription(event.data.object as Stripe.Subscription, event.id)
+    }
+
+    if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+      await syncSubscription(event.data.object as Stripe.Subscription, event.id, { grantPeriodCredits: false })
     }
 
     return Response.json({ received: true })

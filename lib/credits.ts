@@ -139,6 +139,18 @@ function nextGrantDates(interval: PrismaBillingInterval | null | undefined, now 
   }
 }
 
+function explicitGrantDates(periodStart: Date | null | undefined, periodEnd: Date | null | undefined) {
+  if (!periodStart || !periodEnd || periodEnd <= periodStart) {
+    return null
+  }
+
+  return {
+    creditsPeriodStart: periodStart,
+    creditsPeriodEnd: periodEnd,
+    nextCreditGrantAt: periodEnd,
+  }
+}
+
 async function syncCreditPeriod(tx: Prisma.TransactionClient, credit: CreditRecord, now = new Date()) {
   const interval = credit.billingInterval || PRISMA_BILLING_INTERVAL.MONTH
   const cycleCredits = planCredits(credit.plan, interval)
@@ -290,6 +302,9 @@ export async function activateSubscriptionCredits(params: {
   stripeCustomerId?: string | null
   stripeSubscriptionId?: string | null
   stripeEventId?: string
+  periodStart?: Date | null
+  periodEnd?: Date | null
+  grantPeriodCredits?: boolean
 }) {
   return prisma.$transaction(async (tx) => {
     const credit =
@@ -306,14 +321,19 @@ export async function activateSubscriptionCredits(params: {
     const isActive = ACTIVE_STATUSES.has(params.status)
     const cycleCredits = planCredits(nextPlan, nextInterval)
     const now = new Date()
+    const isPlanTransition =
+      credit.plan !== nextPlan || credit.billingInterval !== nextInterval || !ACTIVE_STATUSES.has(credit.subscriptionStatus)
+    const isPeriodDue = !credit.nextCreditGrantAt || credit.nextCreditGrantAt <= now
     const shouldGrant =
       isActive &&
-      (credit.plan !== nextPlan ||
-        credit.billingInterval !== nextInterval ||
-        !ACTIVE_STATUSES.has(credit.subscriptionStatus) ||
-        !credit.nextCreditGrantAt ||
-        credit.nextCreditGrantAt <= now)
-    const dates = shouldGrant ? nextGrantDates(nextInterval, now) : null
+      (isPlanTransition || (params.grantPeriodCredits !== false && isPeriodDue))
+    const dates = shouldGrant ? explicitGrantDates(params.periodStart, params.periodEnd) || nextGrantDates(nextInterval, now) : null
+    const periodGrantIdempotencyKey =
+      dates && params.stripeSubscriptionId
+        ? `stripe-subscription-period:${params.stripeSubscriptionId}:${params.plan}:${params.interval}:${dates.creditsPeriodStart.toISOString()}`
+        : params.stripeEventId
+          ? `stripe:${params.stripeEventId}:period-grant`
+          : undefined
 
     const updated = await tx.userCredit.update({
       where: { userId: params.userId },
@@ -345,7 +365,7 @@ export async function activateSubscriptionCredits(params: {
                 ? "Annual plan credits granted after subscription activation."
                 : "Monthly plan credits granted after subscription activation.",
             stripeEventId: params.stripeEventId,
-            idempotencyKey: params.stripeEventId ? `stripe:${params.stripeEventId}:period-grant` : undefined,
+            idempotencyKey: periodGrantIdempotencyKey,
             metadata: toJson({ plan: params.plan, interval: params.interval, credits: cycleCredits }),
           },
         ],

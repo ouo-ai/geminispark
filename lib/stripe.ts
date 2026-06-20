@@ -118,3 +118,19 @@ export function paidPlanFromPriceId(priceId: string | null | undefined): PaidPla
 
   return null
 }
+
+export function paidPlanFromPrice(price: Stripe.Price | null | undefined): PaidPlan | null {
+  if (!price) {
+    return null
+  }
+
+  for (const plan of ["STARTUP", "PRO"] as const) {
+    for (const interval of ["month", "year"] as const) {
+      if (price.lookup_key === stripePriceLookupKey(plan, interval)) {
+        return plan
+      }
+    }
+  }
+
+  return paidPlanFromPriceId(price.id)
+}
