@@ -66,10 +66,10 @@ export function Footer() {
             &copy; {new Date().getFullYear()} Gemini Spark. All rights reserved.
           </p>
           <a
-            href="mailto:support@geminispark.ai"
+            href="mailto:support@xspark.ai"
             className="text-[10px] sm:text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
           >
-            support@geminispark.ai
+            support@xspark.ai
           </a>
         </div>
       </div>
